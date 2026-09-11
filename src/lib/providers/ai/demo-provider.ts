@@ -29,62 +29,62 @@ export class DemoAIProvider implements AIProvider {
 
     if (input.strategySignal.direction === "LONG") {
       score += input.strategySignal.strength;
-      reasons.push(`Strategy "${input.strategySignal.kind}" emitted a LONG signal (strength ${input.strategySignal.strength.toFixed(2)}).`);
+      reasons.push(`La estrategia "${input.strategySignal.kind}" emitió una señal LARGA (fuerza ${input.strategySignal.strength.toFixed(2)}).`);
     } else {
       score -= input.strategySignal.strength;
-      reasons.push(`Strategy "${input.strategySignal.kind}" emitted a SHORT signal (strength ${input.strategySignal.strength.toFixed(2)}).`);
+      reasons.push(`La estrategia "${input.strategySignal.kind}" emitió una señal CORTA (fuerza ${input.strategySignal.strength.toFixed(2)}).`);
     }
 
     if (Math.sign(trend) === Math.sign(score || 1)) {
       score += 0.15;
-      reasons.push(`Trend indicator (${trend.toFixed(2)}) agrees with the proposed direction.`);
+      reasons.push(`El indicador de tendencia (${trend.toFixed(2)}) coincide con la dirección propuesta.`);
     } else {
       score -= 0.2;
-      risks.push(`Trend indicator (${trend.toFixed(2)}) disagrees with the proposed direction.`);
+      risks.push(`El indicador de tendencia (${trend.toFixed(2)}) contradice la dirección propuesta.`);
     }
 
     if (input.regime === "BULL" || input.regime === "STRONG_BULL") {
       if (score > 0) score += 0.1;
-      reasons.push(`Market regime is ${input.regime}.`);
+      reasons.push(`El régimen de mercado es ${input.regime}.`);
     } else if (input.regime === "BEAR" || input.regime === "STRONG_BEAR") {
       if (score < 0) score += 0.1; // agrees with short bias magnitude, handled below
-      reasons.push(`Market regime is ${input.regime}.`);
+      reasons.push(`El régimen de mercado es ${input.regime}.`);
     } else if (input.regime === "HIGH_VOLATILITY") {
-      risks.push("Regime is HIGH_VOLATILITY: wider stops and reduced confidence apply.");
+      risks.push("El régimen es de ALTA VOLATILIDAD: se aplican stops más amplios y menor confianza.");
       score *= 0.7;
     }
 
-    if (rsi > 75) risks.push(`RSI (${rsi.toFixed(1)}) indicates overbought conditions.`);
-    if (rsi < 25) risks.push(`RSI (${rsi.toFixed(1)}) indicates oversold conditions.`);
+    if (rsi > 75) risks.push(`El RSI (${rsi.toFixed(1)}) indica condiciones de sobrecompra.`);
+    if (rsi < 25) risks.push(`El RSI (${rsi.toFixed(1)}) indica condiciones de sobreventa.`);
 
-    if (volumeZ < -1) risks.push("Volume is well below its recent average — weak participation.");
-    else if (volumeZ > 1.5) reasons.push("Volume is elevated versus its recent average, supporting the move.");
+    if (volumeZ < -1) risks.push("El volumen está muy por debajo de su media reciente — participación débil.");
+    else if (volumeZ > 1.5) reasons.push("El volumen está elevado respecto a su media reciente, respaldando el movimiento.");
 
     const avgNewsSentiment =
       input.news.length > 0 ? input.news.reduce((s, n) => s + n.sentiment * (n.importance / 100), 0) / input.news.length : 0;
     if (Math.sign(avgNewsSentiment) !== 0) {
       if (Math.sign(avgNewsSentiment) === Math.sign(score)) {
-        reasons.push(`Recent news sentiment (${avgNewsSentiment.toFixed(2)}) aligns with the signal.`);
+        reasons.push(`El sentimiento de las noticias recientes (${avgNewsSentiment.toFixed(2)}) coincide con la señal.`);
       } else {
-        risks.push(`Recent news sentiment (${avgNewsSentiment.toFixed(2)}) is misaligned with the signal.`);
+        risks.push(`El sentimiento de las noticias recientes (${avgNewsSentiment.toFixed(2)}) no coincide con la señal.`);
         score -= 0.1;
       }
     }
 
     if (input.sentiment.divergence) {
-      risks.push("Sentiment/price divergence detected — potential trap or exhausted move.");
+      risks.push("Divergencia sentimiento/precio detectada — posible trampa o movimiento agotado.");
       score -= 0.15;
     }
 
     const missingOnChain = Object.values(input.onChain).filter((v) => v === null).length;
     const dataQuality = Math.max(0, input.marketIntelligence - missingOnChain * 3);
     if (dataQuality < 60) {
-      risks.push("Data quality/confidence is below a comfortable threshold for this decision.");
+      risks.push("La calidad/confianza de los datos está por debajo de un umbral cómodo para esta decisión.");
     }
 
     invalidations.push(
-      `Invalidate if price closes back through the entry level with a trend flip in indicator "trend".`,
-      `Invalidate if market regime transitions away from ${input.regime} before target is reached.`
+      `Invalidar si el precio vuelve a cerrar a través del nivel de entrada con un giro de tendencia en el indicador "trend".`,
+      `Invalidar si el régimen de mercado deja de ser ${input.regime} antes de alcanzar el objetivo.`
     );
 
     const confidence = Math.max(0, Math.min(1, (Math.abs(score) + 0.35) / 1.5));
@@ -113,37 +113,37 @@ export class DemoAIProvider implements AIProvider {
     let overfitting = false;
 
     if (input.analyst.confidence > 0.85 && input.analyst.risks.length === 0) {
-      challenged.push("Confidence is very high with zero listed risks — that combination itself is suspicious.");
-      biases.push("Possible confirmation bias: only supporting reasons were surfaced.");
+      challenged.push("La confianza es muy alta sin ningún riesgo listado — esa combinación en sí misma es sospechosa.");
+      biases.push("Posible sesgo de confirmación: solo se mostraron razones que apoyan la señal.");
     }
 
     if (input.historicalStrategyStats) {
       const { trades, winRate, sharpe } = input.historicalStrategyStats;
       if (trades < 30) {
-        challenged.push(`Only ${trades} historical trades exist for this strategy version — too small a sample to trust the edge.`);
+        challenged.push(`Solo existen ${trades} operaciones históricas para esta versión de estrategia — muestra demasiado pequeña para confiar en la ventaja.`);
         overfitting = true;
       }
       if (winRate > 0.75 && trades < 50) {
-        challenged.push(`Win rate of ${(winRate * 100).toFixed(0)}% on a small sample is more consistent with variance than edge.`);
+        challenged.push(`Una tasa de acierto del ${(winRate * 100).toFixed(0)}% en una muestra pequeña es más propia de la varianza que de una ventaja real.`);
       }
       if (sharpe !== null && sharpe < 0.3) {
-        challenged.push(`Historical Sharpe ratio (${sharpe.toFixed(2)}) is weak; approving on top of it adds risk without evidence of an edge.`);
+        challenged.push(`El ratio de Sharpe histórico (${sharpe.toFixed(2)}) es débil; aprobar sobre esa base añade riesgo sin evidencia de ventaja.`);
       }
     } else {
-      challenged.push("No historical performance stats were supplied for this strategy version — evidence is INSUFFICIENT by default.");
+      challenged.push("No se proporcionaron estadísticas históricas de rendimiento para esta versión de estrategia — la evidencia es INSUFICIENTE por defecto.");
       overfitting = true;
     }
 
     if (input.context.regime === "TRANSITION") {
-      challenged.push("Regime is TRANSITION — signals generated during regime transitions are historically less reliable.");
+      challenged.push("El régimen es de TRANSICIÓN — las señales generadas durante transiciones de régimen son históricamente menos fiables.");
     }
 
     if (input.context.riskContext.openExposurePct > 0.6) {
-      challenged.push(`Account is already ${(input.context.riskContext.openExposurePct * 100).toFixed(0)}% exposed; adding more concentrates risk.`);
+      challenged.push(`La cuenta ya está expuesta en un ${(input.context.riskContext.openExposurePct * 100).toFixed(0)}%; añadir más concentra el riesgo.`);
     }
 
     const dataQualityLow = input.analyst.data_quality < 55;
-    if (dataQualityLow) challenged.push(`Data quality/confidence score (${input.analyst.data_quality}) is too low to trust this signal.`);
+    if (dataQualityLow) challenged.push(`La puntuación de calidad/confianza de los datos (${input.analyst.data_quality}) es demasiado baja para confiar en esta señal.`);
 
     let verdict: AICriticOutput["verdict"] = "APPROVED";
     if (dataQualityLow || input.analyst.recommendation === "REJECT") verdict = "BLOCKED";
@@ -156,8 +156,8 @@ export class DemoAIProvider implements AIProvider {
       overfittingConcern: overfitting,
       notes:
         verdict === "APPROVED"
-          ? "No disqualifying issues found; hypothesis survives adversarial review."
-          : "One or more concerns were raised; see challengedReasons.",
+          ? "No se encontraron problemas descalificantes; la hipótesis sobrevive a la revisión adversarial."
+          : "Se plantearon una o más objeciones; ver challengedReasons.",
     };
 
     return { output, tokensIn: 0, tokensOut: 0, model: this.id };

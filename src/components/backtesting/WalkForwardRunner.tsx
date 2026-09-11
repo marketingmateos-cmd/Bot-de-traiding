@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { STRATEGY_OPTIONS, ASSET_OPTIONS } from "./options";
+import { tEvidenceLevel } from "@/lib/i18n";
 
 interface WindowResult {
   windowIndex: number;
@@ -35,7 +36,7 @@ export function WalkForwardRunner() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Card title="Run Walk-Forward Test" subtitle="TRAIN → OUT-OF-SAMPLE, rolled forward across the full series. Each window's OOS slice was never seen by that window's train slice.">
+      <Card title="Ejecutar Prueba Walk-Forward" subtitle="ENTRENAMIENTO → FUERA DE MUESTRA, avanzando a lo largo de toda la serie. La porción OOS de cada ventana nunca fue vista por la porción de entrenamiento de esa ventana.">
         <div className="flex flex-wrap items-center gap-2">
           <select value={strategyDefId} onChange={(e) => setStrategyDefId(e.target.value)} className="rounded border border-bg-border bg-black/20 px-2 py-1.5 text-xs">
             {STRATEGY_OPTIONS.map((s) => (
@@ -48,37 +49,37 @@ export function WalkForwardRunner() {
             ))}
           </select>
           <button onClick={run} disabled={loading} className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50">
-            {loading ? "Running…" : "Run Walk-Forward"}
+            {loading ? "Ejecutando…" : "Ejecutar Walk-Forward"}
           </button>
         </div>
       </Card>
 
       {data && (
         <>
-          <Card title="Aggregate OOS Result">
+          <Card title="Resultado OOS Agregado">
             <div className="flex flex-wrap gap-4 font-mono text-sm">
-              <span>Avg OOS return: {data.walkForward.aggregateOosMetrics.avgReturnPct.toFixed(1)}%</span>
-              <span>Avg OOS Sharpe: {data.walkForward.aggregateOosMetrics.avgSharpe?.toFixed(2) ?? "—"}</span>
-              <span>Profitable windows: {(data.walkForward.aggregateOosMetrics.winRateOfWindows * 100).toFixed(0)}%</span>
+              <span>Retorno OOS medio: {data.walkForward.aggregateOosMetrics.avgReturnPct.toFixed(1)}%</span>
+              <span>Sharpe OOS medio: {data.walkForward.aggregateOosMetrics.avgSharpe?.toFixed(2) ?? "—"}</span>
+              <span>Ventanas rentables: {(data.walkForward.aggregateOosMetrics.winRateOfWindows * 100).toFixed(0)}%</span>
             </div>
             <Badge tone={data.overfitting.risk === "HIGH" ? "danger" : data.overfitting.risk === "MEDIUM" ? "warn" : "success"} className="mt-2">
-              OVERFITTING RISK: {data.overfitting.risk}
+              RIESGO DE SOBREAJUSTE: {tEvidenceLevel(data.overfitting.risk)}
             </Badge>
           </Card>
 
-          <Card title={`Windows (${data.walkForward.windows.length})`}>
+          <Card title={`Ventanas (${data.walkForward.windows.length})`}>
             {data.walkForward.windows.length === 0 ? (
-              <p className="text-sm text-muted">Not enough history for a full walk-forward window.</p>
+              <p className="text-sm text-muted">No hay suficiente histórico para una ventana walk-forward completa.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="text-muted">
                     <tr>
                       <th className="py-1 pr-3">#</th>
-                      <th className="py-1 pr-3">OOS Range</th>
-                      <th className="py-1 pr-3">Train Return</th>
-                      <th className="py-1 pr-3">OOS Return</th>
-                      <th className="py-1 pr-3">Degraded?</th>
+                      <th className="py-1 pr-3">Rango OOS</th>
+                      <th className="py-1 pr-3">Retorno Entrenamiento</th>
+                      <th className="py-1 pr-3">Retorno OOS</th>
+                      <th className="py-1 pr-3">¿Degradada?</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -88,7 +89,7 @@ export function WalkForwardRunner() {
                         <td className="py-1.5 pr-3 font-mono">{new Date(w.oosRange[0]).toLocaleDateString()} – {new Date(w.oosRange[1]).toLocaleDateString()}</td>
                         <td className="py-1.5 pr-3 font-mono">{w.trainMetrics.totalReturnPct.toFixed(1)}%</td>
                         <td className={`py-1.5 pr-3 font-mono ${w.oosMetrics.totalReturnPct >= 0 ? "text-accent" : "text-danger"}`}>{w.oosMetrics.totalReturnPct.toFixed(1)}%</td>
-                        <td className="py-1.5 pr-3">{w.degraded ? <Badge tone="danger">yes</Badge> : <Badge tone="muted">no</Badge>}</td>
+                        <td className="py-1.5 pr-3">{w.degraded ? <Badge tone="danger">sí</Badge> : <Badge tone="muted">no</Badge>}</td>
                       </tr>
                     ))}
                   </tbody>

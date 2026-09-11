@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { HypothesisForm } from "@/components/research/HypothesisForm";
 import { env } from "@/lib/env";
+import { tEvidenceLevel, tVerdict } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -13,25 +14,25 @@ export default async function ResearchPage() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h1 className="text-lg font-semibold text-slate-100">AI Research Lab</h1>
+        <h1 className="text-lg font-semibold text-slate-100">Laboratorio de IA</h1>
         <p className="mt-1 text-sm text-muted">
-          Multi-agent research: an Analyst produces a structured hypothesis, a Critic tries to falsify it.{" "}
-          {!env.hasAnthropicKey && <Badge tone="muted">Running rule-based DEMO AI (no ANTHROPIC_API_KEY set)</Badge>}
+          Investigación multi-agente: un Analista produce una hipótesis estructurada, una Crítica intenta refutarla.{" "}
+          {!env.hasAnthropicKey && <Badge tone="muted">Ejecutando IA DEMO basada en reglas (no hay ANTHROPIC_API_KEY configurada)</Badge>}
         </p>
       </div>
 
       <HypothesisForm />
 
-      <Card title="Recent Hypotheses">
+      <Card title="Hipótesis Recientes">
         {hypotheses.length === 0 ? (
-          <p className="text-sm text-muted">No hypotheses tested yet.</p>
+          <p className="text-sm text-muted">Aún no se ha probado ninguna hipótesis.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {hypotheses.map((h) => (
               <div key={h.id} className="rounded border border-bg-border bg-black/20 p-3 text-xs">
                 <div className="mb-1 flex items-center gap-2">
-                  <Badge tone={h.status === "ACCEPTED" ? "success" : h.status === "REJECTED" ? "danger" : "warn"}>{h.status}</Badge>
-                  <Badge tone="muted">{h.evidenceLevel}</Badge>
+                  <Badge tone={h.status === "ACCEPTED" ? "success" : h.status === "REJECTED" ? "danger" : "warn"}>{tVerdict(h.status)}</Badge>
+                  <Badge tone="muted">{h.evidenceLevel ? tEvidenceLevel(h.evidenceLevel) : "—"}</Badge>
                 </div>
                 <p className="text-slate-200">{h.statement}</p>
                 <p className="mt-1 text-muted">{h.rationale}</p>
@@ -41,16 +42,16 @@ export default async function ResearchPage() {
         )}
       </Card>
 
-      <Card title="Recent AI Analyst / Critic Calls">
+      <Card title="Llamadas Recientes a IA Analista / Crítica">
         {analyses.length === 0 ? (
-          <p className="text-sm text-muted">No AI analyses yet — run a Paper Trading scan to generate some.</p>
+          <p className="text-sm text-muted">Aún no hay análisis de IA — ejecuta un escaneo en Paper Trading para generar algunos.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {analyses.map((a) => (
               <details key={a.id} className="rounded border border-bg-border bg-black/20 p-3 text-xs">
                 <summary className="cursor-pointer text-slate-200">
-                  <Badge tone={a.kind === "ANALYST" ? "info" : "warn"}>{a.kind}</Badge> · {a.model} · {a.createdAt.toLocaleString()}
-                  {a.cached && <Badge tone="muted" className="ml-1">cached</Badge>}
+                  <Badge tone={a.kind === "ANALYST" ? "info" : "warn"}>{a.kind === "ANALYST" ? "ANALISTA" : "CRÍTICA"}</Badge> · {a.model} · {a.createdAt.toLocaleString()}
+                  {a.cached && <Badge tone="muted" className="ml-1">caché</Badge>}
                 </summary>
                 <pre className="mt-2 overflow-x-auto rounded bg-black/40 p-2 font-mono text-[11px] text-slate-300">
                   {JSON.stringify(a.output, null, 2)}

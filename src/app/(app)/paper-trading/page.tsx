@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { ScanPanel } from "@/components/paper-trading/ScanPanel";
+import { tDirection, tOrderStatus, tPositionStatus } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 const ACCOUNT_ID = "main-paper-account";
@@ -17,31 +18,31 @@ export default async function PaperTradingPage() {
     <div className="flex flex-col gap-5">
       <div>
         <h1 className="text-lg font-semibold text-slate-100">Paper Trading</h1>
-        <p className="mt-1 text-sm text-muted">100% simulated — no real orders are ever sent to any exchange. Long and short both supported.</p>
+        <p className="mt-1 text-sm text-muted">100% simulado — nunca se envía ninguna orden real a un exchange. Compatible con posiciones largas y cortas.</p>
         {account?.isTradingBlocked && (
           <div className="mt-2 rounded border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
-            Trading is currently BLOCKED: {account.blockedReason}
+            El trading está actualmente BLOQUEADO: {account.blockedReason}
           </div>
         )}
       </div>
 
       <ScanPanel />
 
-      <Card title="Open Positions" subtitle={`${openPositions.length} open`}>
+      <Card title="Posiciones Abiertas" subtitle={`${openPositions.length} abierta(s)`}>
         {openPositions.length === 0 ? (
-          <p className="text-sm text-muted">No open positions.</p>
+          <p className="text-sm text-muted">No hay posiciones abiertas.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="text-muted">
                 <tr>
-                  <th className="py-1 pr-3">Asset</th>
-                  <th className="py-1 pr-3">Strategy</th>
+                  <th className="py-1 pr-3">Activo</th>
+                  <th className="py-1 pr-3">Estrategia</th>
                   <th className="py-1 pr-3">Dir</th>
-                  <th className="py-1 pr-3">Entry</th>
+                  <th className="py-1 pr-3">Entrada</th>
                   <th className="py-1 pr-3">Stop</th>
-                  <th className="py-1 pr-3">Target</th>
-                  <th className="py-1 pr-3">Status</th>
+                  <th className="py-1 pr-3">Objetivo</th>
+                  <th className="py-1 pr-3">Estado</th>
                 </tr>
               </thead>
               <tbody>
@@ -50,13 +51,13 @@ export default async function PaperTradingPage() {
                     <td className="py-1.5 pr-3 font-medium">{p.asset.symbol}</td>
                     <td className="py-1.5 pr-3">{p.strategyVersion?.strategy.name ?? "—"}</td>
                     <td className="py-1.5 pr-3">
-                      <Badge tone={p.direction === "LONG" ? "success" : "danger"}>{p.direction}</Badge>
+                      <Badge tone={p.direction === "LONG" ? "success" : "danger"}>{tDirection(p.direction)}</Badge>
                     </td>
                     <td className="py-1.5 pr-3 font-mono">{p.entryPrice.toFixed(2)}</td>
                     <td className="py-1.5 pr-3 font-mono">{p.stopLoss?.toFixed(2) ?? "—"}</td>
                     <td className="py-1.5 pr-3 font-mono">{p.takeProfit?.toFixed(2) ?? "—"}</td>
                     <td className="py-1.5 pr-3">
-                      <Badge tone="info">{p.status}</Badge>
+                      <Badge tone="info">{tPositionStatus(p.status)}</Badge>
                     </td>
                   </tr>
                 ))}
@@ -66,18 +67,18 @@ export default async function PaperTradingPage() {
         )}
       </Card>
 
-      <Card title="Recent Orders" subtitle="Includes blocked / low-confidence candidates — full transparency on what did NOT trade and why">
+      <Card title="Órdenes Recientes" subtitle="Incluye candidatas bloqueadas o de baja confianza — transparencia total sobre lo que NO operó y por qué">
         {recentOrders.length === 0 ? (
-          <p className="text-sm text-muted">No orders yet.</p>
+          <p className="text-sm text-muted">Aún no hay órdenes.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {recentOrders.map((o) => (
               <div key={o.id} className="flex items-center justify-between rounded border border-bg-border bg-black/20 px-3 py-2 text-xs">
                 <div>
-                  <span className="font-medium">{o.asset.symbol}</span> <Badge tone={o.direction === "LONG" ? "success" : "danger"}>{o.direction}</Badge>{" "}
-                  <span className="text-muted">requested @ {o.requestedPrice.toFixed(2)}</span>
+                  <span className="font-medium">{o.asset.symbol}</span> <Badge tone={o.direction === "LONG" ? "success" : "danger"}>{tDirection(o.direction)}</Badge>{" "}
+                  <span className="text-muted">solicitada a {o.requestedPrice.toFixed(2)}</span>
                 </div>
-                <Badge tone={o.status === "FILLED" ? "success" : o.status === "LOW_CONFIDENCE" ? "warn" : "danger"}>{o.status}</Badge>
+                <Badge tone={o.status === "FILLED" ? "success" : o.status === "LOW_CONFIDENCE" ? "warn" : "danger"}>{tOrderStatus(o.status)}</Badge>
               </div>
             ))}
           </div>

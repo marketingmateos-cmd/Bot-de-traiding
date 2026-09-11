@@ -3,6 +3,7 @@ import { getStrategyPerformanceStats } from "@/lib/engines/strategyStats";
 import { assessEvidence } from "@/lib/engines/luckVsEdge";
 import { Card } from "@/components/ui/Card";
 import { Badge, verdictTone } from "@/components/ui/Badge";
+import { tEvidenceLevel, tVerdict } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +23,9 @@ export default async function LuckVsEdgePage() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h1 className="text-lg font-semibold text-slate-100">Luck vs Edge — Prove It Mode</h1>
+        <h1 className="text-lg font-semibold text-slate-100">Suerte vs Ventaja — Modo Prove It</h1>
         <p className="mt-1 text-sm text-muted">
-          A winning streak is never, by itself, proof of an edge. Every verdict here can only be downgraded by more evidence, never upgraded by a good week.
+          Una racha ganadora nunca es, por sí sola, prueba de una ventaja. Cada veredicto aquí solo puede rebajarse con más evidencia, nunca mejorarse por una buena semana.
         </p>
       </div>
 
@@ -32,17 +33,17 @@ export default async function LuckVsEdgePage() {
         {assessments.map((a) => (
           <Card key={a.name} title={a.name}>
             <div className="mb-2 flex items-center gap-2">
-              <Badge tone={verdictTone(a.evidence.verdict)}>{a.evidence.verdict.replace(/_/g, " ")}</Badge>
-              <Badge tone={verdictTone(a.evidence.evidenceLevel)}>{a.evidence.evidenceLevel} EVIDENCE</Badge>
+              <Badge tone={verdictTone(a.evidence.verdict)}>{tVerdict(a.evidence.verdict)}</Badge>
+              <Badge tone={verdictTone(a.evidence.evidenceLevel)}>EVIDENCIA {tEvidenceLevel(a.evidence.evidenceLevel)}</Badge>
             </div>
             <div className="mb-2 flex flex-wrap gap-3 font-mono text-xs text-muted">
-              <span>{a.stats.trades} trades</span>
-              <span>win rate {(a.stats.winRate * 100).toFixed(0)}%</span>
+              <span>{a.stats.trades} operaciones</span>
+              <span>acierto {(a.stats.winRate * 100).toFixed(0)}%</span>
               <span>Sharpe {a.stats.sharpe?.toFixed(2) ?? "—"}</span>
-              <span>max DD {a.stats.maxDrawdownPct.toFixed(1)}%</span>
+              <span>DD máx {a.stats.maxDrawdownPct.toFixed(1)}%</span>
             </div>
             {a.evidence.warnings.length === 0 ? (
-              <p className="text-xs text-accent">No red flags at this sample size.</p>
+              <p className="text-xs text-accent">No hay señales de alerta en este tamaño de muestra.</p>
             ) : (
               <ul className="flex flex-col gap-1 text-xs text-warn">
                 {a.evidence.warnings.map((w, i) => (

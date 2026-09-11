@@ -124,7 +124,7 @@ export async function openPosition(input: OpenPositionInput) {
     });
 
     await tx.positionStateChange.create({
-      data: { positionId: position.id, fromStatus: null, toStatus: "OPEN", reason: "Order filled", source: "engine" },
+      data: { positionId: position.id, fromStatus: null, toStatus: "OPEN", reason: "Orden ejecutada", source: "engine" },
     });
 
     await tx.paperAccount.update({
@@ -286,12 +286,12 @@ export async function reconcilePositions(accountId: string) {
   for (const pos of openPositions) {
     const key = `${pos.assetId}:${pos.strategyVersionId ?? "none"}:${pos.direction}`;
     if (seen.has(key)) {
-      issues.push(`Duplicate open positions detected for ${key}: ${seen.get(key)} and ${pos.id}`);
+      issues.push(`Posiciones abiertas duplicadas detectadas para ${key}: ${seen.get(key)} y ${pos.id}`);
     } else {
       seen.set(key, pos.id);
     }
     if (pos.remainingQuantity <= 0) {
-      issues.push(`Position ${pos.id} is ${pos.status} but has zero remaining quantity.`);
+      issues.push(`La posición ${pos.id} está ${pos.status} pero tiene cantidad restante cero.`);
     }
   }
 
@@ -299,18 +299,18 @@ export async function reconcilePositions(accountId: string) {
     where: { accountId, status: "FILLED", position: null },
   });
   for (const order of orphanedOrders) {
-    issues.push(`Order ${order.id} is FILLED but has no linked position.`);
+    issues.push(`La orden ${order.id} está EJECUTADA pero no tiene ninguna posición vinculada.`);
   }
 
   if (issues.length > 0) {
     await prisma.paperAccount.update({
       where: { id: accountId },
-      data: { isTradingBlocked: true, blockedReason: `Reconciliation found ${issues.length} inconsistency(ies).` },
+      data: { isTradingBlocked: true, blockedReason: `La reconciliación encontró ${issues.length} inconsistencia(s).` },
     });
     await createSystemAlert({
       kind: "POSITION_INCONSISTENCY",
       severity: "CRITICAL",
-      title: "Position state inconsistency detected",
+      title: "Inconsistencia en el estado de posiciones detectada",
       message: issues.join(" | "),
       data: { accountId, issues },
     });

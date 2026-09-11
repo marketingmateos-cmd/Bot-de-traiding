@@ -24,42 +24,42 @@ export function computeRobustnessScore(input: RobustnessInputs): RobustnessRepor
 
   // 1. Sample size / trade count.
   const tradeCountScore = Math.min(100, (input.baseMetrics.trades / 100) * 100);
-  factors.push({ name: "Sample Size", score: tradeCountScore, detail: `${input.baseMetrics.trades} trades in base run.` });
+  factors.push({ name: "Tamaño de Muestra", score: tradeCountScore, detail: `${input.baseMetrics.trades} operaciones en la ejecución base.` });
 
   // 2. Walk-forward consistency.
   if (input.walkForward && input.walkForward.windows.length > 0) {
     const wfScore = input.walkForward.aggregateOosMetrics.winRateOfWindows * 100;
     factors.push({
-      name: "Walk-Forward Consistency",
+      name: "Consistencia Walk-Forward",
       score: wfScore,
-      detail: `${(input.walkForward.aggregateOosMetrics.winRateOfWindows * 100).toFixed(0)}% of OOS windows were profitable.`,
+      detail: `${(input.walkForward.aggregateOosMetrics.winRateOfWindows * 100).toFixed(0)}% de las ventanas OOS fueron rentables.`,
     });
   } else {
-    factors.push({ name: "Walk-Forward Consistency", score: 0, detail: "No walk-forward data available." });
+    factors.push({ name: "Consistencia Walk-Forward", score: 0, detail: "No hay datos de walk-forward disponibles." });
   }
 
   // 3. Parameter sensitivity: low variance across small jitters = robust.
   if (input.parameterPerturbationReturns.length > 1) {
     const stability = computeStabilityScore(input.parameterPerturbationReturns);
-    factors.push({ name: "Parameter Stability", score: stability, detail: `Stability across ${input.parameterPerturbationReturns.length} parameter perturbations.` });
+    factors.push({ name: "Estabilidad de Parámetros", score: stability, detail: `Estabilidad a través de ${input.parameterPerturbationReturns.length} perturbaciones de parámetros.` });
   } else {
-    factors.push({ name: "Parameter Stability", score: 0, detail: "No parameter perturbation runs available." });
+    factors.push({ name: "Estabilidad de Parámetros", score: 0, detail: "No hay ejecuciones de perturbación de parámetros disponibles." });
   }
 
   // 4. Cross-asset generalization.
   if (input.crossAssetReturns.length > 0) {
     const positiveShare = input.crossAssetReturns.filter((r) => r > 0).length / input.crossAssetReturns.length;
-    factors.push({ name: "Cross-Asset Generalization", score: positiveShare * 100, detail: `Profitable on ${Math.round(positiveShare * 100)}% of other tested assets.` });
+    factors.push({ name: "Generalización entre Activos", score: positiveShare * 100, detail: `Rentable en el ${Math.round(positiveShare * 100)}% de los otros activos probados.` });
   } else {
-    factors.push({ name: "Cross-Asset Generalization", score: 0, detail: "No cross-asset runs available." });
+    factors.push({ name: "Generalización entre Activos", score: 0, detail: "No hay ejecuciones entre activos disponibles." });
   }
 
   // 5. Cost sensitivity: does the edge survive higher costs?
   if (input.costSensitivityReturns.length > 0) {
     const survivalShare = input.costSensitivityReturns.filter((r) => r > 0).length / input.costSensitivityReturns.length;
-    factors.push({ name: "Cost Sensitivity", score: survivalShare * 100, detail: `Remains profitable in ${Math.round(survivalShare * 100)}% of elevated-cost scenarios.` });
+    factors.push({ name: "Sensibilidad a Costes", score: survivalShare * 100, detail: `Sigue siendo rentable en el ${Math.round(survivalShare * 100)}% de los escenarios de costes elevados.` });
   } else {
-    factors.push({ name: "Cost Sensitivity", score: 0, detail: "No cost sensitivity runs available." });
+    factors.push({ name: "Sensibilidad a Costes", score: 0, detail: "No hay ejecuciones de sensibilidad a costes disponibles." });
   }
 
   const score = Math.round(factors.reduce((s, f) => s + f.score, 0) / factors.length);

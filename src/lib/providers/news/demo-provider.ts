@@ -19,57 +19,57 @@ const TEMPLATES: { category: NewsItem["category"]; titles: string[]; sentimentRa
   {
     category: "REGULATION",
     titles: [
-      "Regulator signals clearer framework for {A} custody rules",
-      "Lawmakers propose new disclosure requirements affecting {A} exchanges",
+      "El regulador señala un marco más claro para las normas de custodia de {A}",
+      "Los legisladores proponen nuevos requisitos de transparencia que afectan a los exchanges de {A}",
     ],
     sentimentRange: [-0.6, 0.2],
   },
   {
     category: "ETF",
-    titles: ["Asset manager files for spot {A} ETF", "{A} ETF sees record daily inflows"],
+    titles: ["Una gestora solicita un ETF spot de {A}", "El ETF de {A} registra entradas diarias récord"],
     sentimentRange: [0.2, 0.8],
   },
   {
     category: "SECURITY",
-    titles: ["Exploit drains funds from {A}-adjacent protocol", "Security firm discloses patched vulnerability affecting {A} bridge"],
+    titles: ["Un exploit drena fondos de un protocolo relacionado con {A}", "Una firma de seguridad revela una vulnerabilidad ya parcheada que afectaba al puente de {A}"],
     sentimentRange: [-0.9, -0.2],
   },
   {
     category: "ADOPTION",
-    titles: ["Payments company adds {A} settlement rail", "Merchant network expands {A} acceptance"],
+    titles: ["Una empresa de pagos añade una vía de liquidación en {A}", "Una red de comercios amplía la aceptación de {A}"],
     sentimentRange: [0.1, 0.7],
   },
   {
     category: "PARTNERSHIP",
-    titles: ["{A} foundation announces partnership with infrastructure provider", "Major custodian adds {A} support"],
+    titles: ["La fundación de {A} anuncia una alianza con un proveedor de infraestructura", "Un gran custodio añade soporte para {A}"],
     sentimentRange: [0.0, 0.5],
   },
   {
     category: "TECHNOLOGY",
-    titles: ["{A} network completes scheduled protocol upgrade", "Core developers publish {A} roadmap update"],
+    titles: ["La red de {A} completa una actualización de protocolo programada", "Los desarrolladores principales publican una actualización de la hoja de ruta de {A}"],
     sentimentRange: [-0.1, 0.5],
   },
   {
     category: "MACRO",
-    titles: ["Central bank commentary weighs on risk assets including {A}", "Macro data release moves crypto markets, {A} reacts"],
+    titles: ["Los comentarios del banco central presionan a los activos de riesgo, incluido {A}", "Un dato macro mueve los mercados cripto, {A} reacciona"],
     sentimentRange: [-0.5, 0.3],
   },
   {
     category: "EXCHANGE",
-    titles: ["Exchange reports elevated {A} withdrawal volume", "Trading venue lists new {A} derivatives product"],
+    titles: ["Un exchange reporta un volumen elevado de retiradas de {A}", "Una plataforma de trading lista un nuevo producto derivado de {A}"],
     sentimentRange: [-0.3, 0.3],
   },
   {
     category: "MARKET",
-    titles: ["{A} volatility spikes amid thin liquidity", "Analysts flag {A} positioning ahead of key level"],
+    titles: ["La volatilidad de {A} se dispara en medio de una liquidez reducida", "Los analistas señalan el posicionamiento de {A} antes de un nivel clave"],
     sentimentRange: [-0.4, 0.4],
   },
   {
     category: "PROTOCOL",
-    titles: ["Governance vote passes for {A}-related protocol parameter change", "New proposal debated in {A} ecosystem forum"],
+    titles: ["Se aprueba en votación un cambio de parámetro del protocolo relacionado con {A}", "Se debate una nueva propuesta en el foro del ecosistema de {A}"],
     sentimentRange: [-0.2, 0.3],
   },
-  { category: "OTHER", titles: ["Community event highlights {A} ecosystem growth"], sentimentRange: [-0.1, 0.3] },
+  { category: "OTHER", titles: ["Un evento comunitario destaca el crecimiento del ecosistema de {A}"], sentimentRange: [-0.1, 0.3] },
 ];
 
 export class DemoNewsProvider implements NewsProvider {
@@ -100,8 +100,8 @@ export class DemoNewsProvider implements NewsProvider {
 
       for (let r = 0; r < repeats && items.length < limit; r++) {
         items.push({
-          title: r === 0 ? title : `${title} — coverage roundup`,
-          source: ["CoinDesk-like Wire", "OnChain Daily", "Ledger Times", "Market Signal"][Math.floor(rand() * 4)],
+          title: r === 0 ? title : `${title} — resumen de cobertura`,
+          source: ["Cripto Wire", "On-Chain Diario", "Ledger Times", "Señal de Mercado"][Math.floor(rand() * 4)],
           publishedAt: new Date(publishTime + r * 1000 * 60 * 15),
           category: template.category,
           importance,

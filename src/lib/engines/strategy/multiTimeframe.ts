@@ -30,7 +30,7 @@ export const multiTimeframeStrategy: StrategyDefinition = {
       kind: "MULTI_TIMEFRAME",
       direction,
       strength: Math.min(1, (Math.abs(lowerTrend) + Math.abs(higherTrend)) / 2),
-      reason: `Entry timeframe trend (${lowerTrend.toFixed(2)}) aligned with higher timeframe trend (${higherTrend.toFixed(2)}).`,
+      reason: `La tendencia de la temporalidad de entrada (${lowerTrend.toFixed(2)}) está alineada con la tendencia de la temporalidad superior (${higherTrend.toFixed(2)}).`,
     };
   },
 };

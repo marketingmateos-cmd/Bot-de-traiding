@@ -19,31 +19,31 @@ export function detectAnomalies(input: AnomalyCheckInput): Anomaly[] {
 
   for (const pnl of input.recentTradePnls) {
     if (!Number.isFinite(pnl)) {
-      anomalies.push({ type: "IMPOSSIBLE_RESULT", severity: "HIGH", message: "A trade recorded a non-finite P&L." });
+      anomalies.push({ type: "IMPOSSIBLE_RESULT", severity: "HIGH", message: "Una operación registró un P&L no finito." });
     }
     if (Math.abs(pnl) > 100000) {
-      anomalies.push({ type: "IMPOSSIBLE_RESULT", severity: "HIGH", message: `A trade recorded an implausible P&L of ${pnl.toFixed(2)} on a €100-scale paper account.` });
+      anomalies.push({ type: "IMPOSSIBLE_RESULT", severity: "HIGH", message: `Una operación registró un P&L implausible de ${pnl.toFixed(2)} en una cuenta paper de escala €100.` });
     }
   }
 
   if (input.duplicateOpenPositionCount > 0) {
-    anomalies.push({ type: "DUPLICATE_POSITION", severity: "HIGH", message: `${input.duplicateOpenPositionCount} duplicate open position(s) detected.` });
+    anomalies.push({ type: "DUPLICATE_POSITION", severity: "HIGH", message: `${input.duplicateOpenPositionCount} posición(es) abierta(s) duplicada(s) detectada(s).` });
   }
 
   if (input.dataQualityScore < 40) {
-    anomalies.push({ type: "DATA_CORRUPTION", severity: "HIGH", message: `Data quality score ${input.dataQualityScore} indicates likely corrupt inputs.` });
+    anomalies.push({ type: "DATA_CORRUPTION", severity: "HIGH", message: `La puntuación de calidad de datos (${input.dataQualityScore}) indica probables entradas corruptas.` });
   }
 
   if (!input.apiHealthy) {
-    anomalies.push({ type: "API_DEGRADED", severity: "MEDIUM", message: "One or more data providers are degraded or unreachable." });
+    anomalies.push({ type: "API_DEGRADED", severity: "MEDIUM", message: "Uno o más proveedores de datos están degradados o inaccesibles." });
   }
 
   if (!input.reconciliationConsistent) {
-    anomalies.push({ type: "STATE_INCONSISTENCY", severity: "HIGH", message: "Position state reconciliation failed." });
+    anomalies.push({ type: "STATE_INCONSISTENCY", severity: "HIGH", message: "Falló la reconciliación del estado de posiciones." });
   }
 
   if (input.priceJumpPct !== null && Math.abs(input.priceJumpPct) > 40) {
-    anomalies.push({ type: "PRICE_ANOMALY", severity: "MEDIUM", message: `Observed a ${input.priceJumpPct.toFixed(1)}% single-bar price move — verify before trusting signals.` });
+    anomalies.push({ type: "PRICE_ANOMALY", severity: "MEDIUM", message: `Se observó un movimiento de precio del ${input.priceJumpPct.toFixed(1)}% en una sola vela — verificar antes de confiar en las señales.` });
   }
 
   return anomalies;

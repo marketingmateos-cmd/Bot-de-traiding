@@ -6,6 +6,7 @@ import { StatTile } from "@/components/ui/StatTile";
 import { Badge } from "@/components/ui/Badge";
 import { EquityCurveChart } from "@/components/charts/EquityCurveChart";
 import { STRATEGY_OPTIONS, ASSET_OPTIONS } from "./options";
+import { tEvidenceLevel } from "@/lib/i18n";
 
 interface BacktestMetrics {
   totalReturnPct: number;
@@ -43,7 +44,7 @@ export function BacktestRunner() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Card title="Run a Backtest" subtitle="No look-ahead bias: strategy only ever sees bars up to the current index; signals fill at the next bar's open.">
+      <Card title="Ejecutar un Backtest" subtitle="Sin sesgo de look-ahead: la estrategia solo ve velas hasta el índice actual; las señales se ejecutan en la apertura de la vela siguiente.">
         <div className="flex flex-wrap items-center gap-2">
           <select value={strategyDefId} onChange={(e) => setStrategyDefId(e.target.value)} className="rounded border border-bg-border bg-black/20 px-2 py-1.5 text-xs">
             {STRATEGY_OPTIONS.map((s) => (
@@ -56,7 +57,7 @@ export function BacktestRunner() {
             ))}
           </select>
           <button onClick={run} disabled={loading} className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50">
-            {loading ? "Running…" : "Run Backtest"}
+            {loading ? "Ejecutando…" : "Ejecutar Backtest"}
           </button>
         </div>
       </Card>
@@ -64,35 +65,35 @@ export function BacktestRunner() {
       {data && (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <StatTile label="Total Return" value={`${data.result.metrics.totalReturnPct.toFixed(1)}%`} tone={data.result.metrics.totalReturnPct >= 0 ? "positive" : "negative"} />
+            <StatTile label="Retorno Total" value={`${data.result.metrics.totalReturnPct.toFixed(1)}%`} tone={data.result.metrics.totalReturnPct >= 0 ? "positive" : "negative"} />
             <StatTile label="Sharpe" value={data.result.metrics.sharpe?.toFixed(2) ?? "—"} />
             <StatTile label="Sortino" value={data.result.metrics.sortino?.toFixed(2) ?? "—"} />
-            <StatTile label="Max Drawdown" value={`${data.result.metrics.maxDrawdownPct.toFixed(1)}%`} />
-            <StatTile label="Win Rate" value={`${(data.result.metrics.winRate * 100).toFixed(0)}%`} />
-            <StatTile label="Trades" value={data.result.metrics.trades} />
+            <StatTile label="Drawdown Máximo" value={`${data.result.metrics.maxDrawdownPct.toFixed(1)}%`} />
+            <StatTile label="Tasa de Acierto" value={`${(data.result.metrics.winRate * 100).toFixed(0)}%`} />
+            <StatTile label="Operaciones" value={data.result.metrics.trades} />
             <StatTile label="Profit Factor" value={data.result.metrics.profitFactor?.toFixed(2) ?? "—"} />
-            <StatTile label="Final Equity" value={`€${data.result.metrics.finalEquity.toFixed(2)}`} />
+            <StatTile label="Equity Final" value={`€${data.result.metrics.finalEquity.toFixed(2)}`} />
           </div>
 
-          <Card title="Equity Curve">
+          <Card title="Curva de Equity">
             <EquityCurveChart data={data.result.equityCurve} />
           </Card>
 
-          <Card title="Benchmark: Buy & Hold">
+          <Card title="Referencia: Buy & Hold">
             <p className={`text-sm ${data.comparison.strategyBeatsReturn ? "text-accent" : "text-danger"}`}>{data.comparison.summary}</p>
             <div className="mt-2 flex gap-4 font-mono text-xs text-muted">
-              <span>B&H Return: {data.benchmark.totalReturnPct.toFixed(1)}%</span>
-              <span>B&H Max DD: {data.benchmark.maxDrawdownPct.toFixed(1)}%</span>
-              <span>B&H Sharpe: {data.benchmark.sharpe?.toFixed(2) ?? "—"}</span>
+              <span>Retorno B&H: {data.benchmark.totalReturnPct.toFixed(1)}%</span>
+              <span>DD Máx B&H: {data.benchmark.maxDrawdownPct.toFixed(1)}%</span>
+              <span>Sharpe B&H: {data.benchmark.sharpe?.toFixed(2) ?? "—"}</span>
             </div>
           </Card>
 
-          <Card title="Overfitting Detector">
+          <Card title="Detector de Sobreajuste">
             <Badge tone={data.overfitting.risk === "HIGH" ? "danger" : data.overfitting.risk === "MEDIUM" ? "warn" : "success"}>
-              OVERFITTING RISK: {data.overfitting.risk}
+              RIESGO DE SOBREAJUSTE: {tEvidenceLevel(data.overfitting.risk)}
             </Badge>
             <ul className="mt-2 flex flex-col gap-1 text-xs text-muted">
-              {data.overfitting.flags.length === 0 ? <li>No red flags detected.</li> : data.overfitting.flags.map((f, i) => <li key={i}>• {f}</li>)}
+              {data.overfitting.flags.length === 0 ? <li>No se detectaron señales de alerta.</li> : data.overfitting.flags.map((f, i) => <li key={i}>• {f}</li>)}
             </ul>
           </Card>
         </>

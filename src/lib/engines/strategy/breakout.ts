@@ -28,7 +28,7 @@ export const breakoutStrategy: StrategyDefinition = {
         kind: "BREAKOUT",
         direction: "LONG",
         strength: Math.min(1, 0.5 + (features.volumeZScore20 ?? 0) / 4),
-        reason: `Close ${current.close.toFixed(2)} broke above ${lookback}-bar high ${highestHigh.toFixed(2)} with confirming volume.`,
+        reason: `El cierre ${current.close.toFixed(2)} rompió por encima del máximo de ${lookback} velas (${highestHigh.toFixed(2)}) con volumen de confirmación.`,
       };
     }
     if (current.close < lowestLow && volumeConfirmed) {
@@ -36,7 +36,7 @@ export const breakoutStrategy: StrategyDefinition = {
         kind: "BREAKOUT",
         direction: "SHORT",
         strength: Math.min(1, 0.5 + (features.volumeZScore20 ?? 0) / 4),
-        reason: `Close ${current.close.toFixed(2)} broke below ${lookback}-bar low ${lowestLow.toFixed(2)} with confirming volume.`,
+        reason: `El cierre ${current.close.toFixed(2)} rompió por debajo del mínimo de ${lookback} velas (${lowestLow.toFixed(2)}) con volumen de confirmación.`,
       };
     }
     return null;

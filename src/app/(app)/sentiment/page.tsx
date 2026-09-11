@@ -11,20 +11,20 @@ export default async function SentimentPage() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h1 className="text-lg font-semibold text-slate-100">Sentiment</h1>
-        <p className="mt-1 text-sm text-muted">Current sentiment, trend, acceleration, and divergence against price for every asset.</p>
+        <h1 className="text-lg font-semibold text-slate-100">Sentimiento</h1>
+        <p className="mt-1 text-sm text-muted">Sentimiento actual, tendencia, aceleración y divergencia con el precio de cada activo.</p>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-bg-border bg-bg-card">
         <table className="w-full text-left text-xs">
           <thead className="text-muted">
             <tr>
-              <th className="px-3 py-2">Asset</th>
-              <th className="px-3 py-2">Sentiment</th>
-              <th className="px-3 py-2">Trend</th>
-              <th className="px-3 py-2">Acceleration</th>
-              <th className="px-3 py-2">Price Δ (20 bars)</th>
-              <th className="px-3 py-2">Divergence</th>
+              <th className="px-3 py-2">Activo</th>
+              <th className="px-3 py-2">Sentimiento</th>
+              <th className="px-3 py-2">Tendencia</th>
+              <th className="px-3 py-2">Aceleración</th>
+              <th className="px-3 py-2">Δ Precio (20 velas)</th>
+              <th className="px-3 py-2">Divergencia</th>
             </tr>
           </thead>
           <tbody>
@@ -36,7 +36,7 @@ export default async function SentimentPage() {
                 <td className="px-3 py-2 font-mono">{a.sentiment.acceleration.toFixed(3)}</td>
                 <td className={`px-3 py-2 font-mono ${a.priceChangePct >= 0 ? "text-accent" : "text-danger"}`}>{a.priceChangePct.toFixed(2)}%</td>
                 <td className="px-3 py-2">
-                  {a.sentiment.divergence ? <Badge tone="warn">Divergence detected</Badge> : <Badge tone="muted">None</Badge>}
+                  {a.sentiment.divergence ? <Badge tone="warn">Divergencia detectada</Badge> : <Badge tone="muted">Ninguna</Badge>}
                 </td>
               </tr>
             ))}
@@ -44,10 +44,11 @@ export default async function SentimentPage() {
         </table>
       </div>
 
-      <Card title="How to read Sentiment-Price Divergence">
+      <Card title="Cómo interpretar la Divergencia Sentimiento-Precio">
         <p className="text-xs text-muted">
-          Divergence flags when price and sentiment move in opposite directions by a meaningful margin — e.g. price +2.4% while sentiment falls 8%. It is a
-          downgrade signal in the Trade Gate, never an outright block: it lowers confidence rather than assuming which side is &quot;right&quot;.
+          La divergencia se marca cuando el precio y el sentimiento se mueven en direcciones opuestas con un margen relevante — p. ej. precio +2,4% mientras
+          el sentimiento cae un 8%. Es una señal que rebaja la confianza en el Trade Gate, nunca un bloqueo directo: reduce la confianza en vez de asumir
+          quién &quot;tiene razón&quot;.
         </p>
       </Card>
     </div>

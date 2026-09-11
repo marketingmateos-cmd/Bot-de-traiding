@@ -48,8 +48,8 @@ export function compareToBenchmark(strategy: BacktestMetrics, benchmark: Benchma
   const returnGapPct = strategy.totalReturnPct - benchmark.totalReturnPct;
 
   const summary = strategyBeatsReturn
-    ? `Strategy outperformed Buy & Hold by ${returnGapPct.toFixed(1)} percentage points.`
-    : `Strategy UNDERPERFORMED Buy & Hold by ${Math.abs(returnGapPct).toFixed(1)} percentage points — a passive hold would have done better.`;
+    ? `La estrategia superó a Buy & Hold por ${returnGapPct.toFixed(1)} puntos porcentuales.`
+    : `La estrategia RINDIÓ PEOR que Buy & Hold por ${Math.abs(returnGapPct).toFixed(1)} puntos porcentuales — mantener pasivamente habría sido mejor.`;
 
   return { strategyBeatsReturn, strategyBeatsRisk, strategyBeatsSharpe, returnGapPct, summary };
 }

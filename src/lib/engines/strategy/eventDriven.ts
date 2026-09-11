@@ -24,7 +24,7 @@ export const eventDrivenStrategy: StrategyDefinition = {
       kind: "EVENT_DRIVEN",
       direction: sentiment > 0 ? "LONG" : "SHORT",
       strength: Math.min(1, (impact / 100) * Math.abs(sentiment) + 0.2),
-      reason: `High-impact news (impact ${impact}) with sentiment ${sentiment.toFixed(2)} exceeds thresholds.`,
+      reason: `Noticia de alto impacto (impacto ${impact}) con sentimiento ${sentiment.toFixed(2)} supera los umbrales.`,
     };
   },
 };

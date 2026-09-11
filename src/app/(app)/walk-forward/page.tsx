@@ -5,7 +5,7 @@ export default function WalkForwardPage() {
     <div className="flex flex-col gap-5">
       <div>
         <h1 className="text-lg font-semibold text-slate-100">Walk-Forward Testing</h1>
-        <p className="mt-1 text-sm text-muted">The single best defense against overfitting: does the edge survive on data the strategy never trained on?</p>
+        <p className="mt-1 text-sm text-muted">La mejor defensa contra el sobreajuste: ¿sobrevive la ventaja en datos con los que la estrategia nunca entrenó?</p>
       </div>
       <WalkForwardRunner />
     </div>

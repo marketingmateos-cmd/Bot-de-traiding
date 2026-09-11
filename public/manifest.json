@@ -1,7 +1,8 @@
 {
   "name": "Crypto AI Trading Lab",
   "short_name": "Trading Lab",
-  "description": "A rigorous, self-skeptical crypto research & paper-trading laboratory. No real orders are ever sent.",
+  "description": "Un laboratorio de investigación y paper trading de criptomonedas, riguroso y escéptico consigo mismo. Nunca se envía ninguna orden real.",
+  "lang": "es",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",

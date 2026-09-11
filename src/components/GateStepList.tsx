@@ -1,5 +1,6 @@
 import { Badge } from "./ui/Badge";
 import { CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { tGateStep, tVerdict } from "@/lib/i18n";
 
 interface GateStep {
   name: string;
@@ -12,8 +13,8 @@ export function GateStepList({ steps, verdict, blockedBy }: { steps: GateStep[];
   return (
     <div>
       <div className="mb-2 flex items-center gap-2">
-        <Badge tone={verdict === "APPROVED" ? "success" : verdict === "LOW_CONFIDENCE" ? "warn" : "danger"}>{verdict}</Badge>
-        {blockedBy && <span className="text-xs text-muted">at {blockedBy}</span>}
+        <Badge tone={verdict === "APPROVED" ? "success" : verdict === "LOW_CONFIDENCE" ? "warn" : "danger"}>{tVerdict(verdict)}</Badge>
+        {blockedBy && <span className="text-xs text-muted">en {tGateStep(blockedBy)}</span>}
       </div>
       <ol className="flex flex-col gap-1.5">
         {steps.map((step) => (
@@ -26,7 +27,7 @@ export function GateStepList({ steps, verdict, blockedBy }: { steps: GateStep[];
               <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-accent" />
             )}
             <div>
-              <div className="font-medium text-slate-200">{step.name.replace(/_/g, " ")}</div>
+              <div className="font-medium text-slate-200">{tGateStep(step.name)}</div>
               <div className="mt-0.5 text-muted">{step.detail}</div>
             </div>
           </li>

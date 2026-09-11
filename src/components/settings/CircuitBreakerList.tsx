@@ -35,14 +35,14 @@ export function CircuitBreakerList({ breakers, accountId }: { breakers: Breaker[
             {b.isTripped && <span className="ml-2 text-muted">{b.trippedReason}</span>}
           </div>
           <div className="flex items-center gap-2">
-            <Badge tone={b.isTripped ? "danger" : "success"}>{b.isTripped ? "TRIPPED" : "OK"}</Badge>
+            <Badge tone={b.isTripped ? "danger" : "success"}>{b.isTripped ? "ACTIVADO" : "OK"}</Badge>
             {b.isTripped && (
               <button
                 onClick={() => reset(b.name)}
                 disabled={pending === b.name}
                 className="rounded border border-bg-border px-2 py-1 text-[11px] hover:bg-white/5 disabled:opacity-50"
               >
-                Reset
+                Restablecer
               </button>
             )}
           </div>

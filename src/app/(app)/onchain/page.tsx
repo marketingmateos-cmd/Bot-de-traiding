@@ -7,13 +7,13 @@ import type { OnChainMetricName } from "@/lib/providers/types";
 export const dynamic = "force-dynamic";
 
 const METRIC_LABELS: Record<OnChainMetricName, string> = {
-  exchange_inflow: "Exchange Inflow",
-  exchange_outflow: "Exchange Outflow",
-  whale_activity: "Whale Activity Index",
-  active_addresses: "Active Addresses",
-  transaction_volume: "Transaction Volume",
-  supply_on_exchanges: "Supply on Exchanges (%)",
-  stablecoin_flows: "Stablecoin Flows",
+  exchange_inflow: "Entradas a Exchanges",
+  exchange_outflow: "Salidas de Exchanges",
+  whale_activity: "Índice de Actividad de Ballenas",
+  active_addresses: "Direcciones Activas",
+  transaction_volume: "Volumen de Transacciones",
+  supply_on_exchanges: "Suministro en Exchanges (%)",
+  stablecoin_flows: "Flujos de Stablecoins",
 };
 
 export default async function OnChainPage() {
@@ -32,8 +32,8 @@ export default async function OnChainPage() {
       <div>
         <h1 className="text-lg font-semibold text-slate-100">On-Chain</h1>
         <p className="mt-1 text-sm text-muted">
-          {provider.isDemo && <Badge tone="muted" className="mr-1">DEMO DATA</Badge>}
-          Metrics genuinely marked DATA UNAVAILABLE where a provider does not supply them — never fabricated.
+          {provider.isDemo && <Badge tone="muted" className="mr-1">DATOS DEMO</Badge>}
+          Las métricas se marcan de verdad como DATOS NO DISPONIBLES cuando un proveedor no las ofrece — nunca se inventan.
         </p>
       </div>
 
@@ -41,7 +41,7 @@ export default async function OnChainPage() {
         <table className="w-full text-left text-xs">
           <thead className="text-muted">
             <tr>
-              <th className="px-3 py-2">Asset</th>
+              <th className="px-3 py-2">Activo</th>
               {metrics.map((m) => (
                 <th key={m} className="px-3 py-2">{METRIC_LABELS[m]}</th>
               ))}
@@ -56,7 +56,7 @@ export default async function OnChainPage() {
                     {v.available ? (
                       v.value !== null ? v.value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—"
                     ) : (
-                      <Badge tone="muted">DATA UNAVAILABLE</Badge>
+                      <Badge tone="muted">DATOS NO DISPONIBLES</Badge>
                     )}
                   </td>
                 ))}

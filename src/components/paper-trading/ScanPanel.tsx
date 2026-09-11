@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { GateStepList } from "@/components/GateStepList";
 import { Badge } from "@/components/ui/Badge";
+import { tDirection } from "@/lib/i18n";
 
 interface ScanCandidate {
   symbol: string;
@@ -32,7 +33,7 @@ export function ScanPanel() {
       setResults(data.results);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Scan failed");
+      setError(e instanceof Error ? e.message : "El escaneo falló");
     } finally {
       setLoading(false);
     }
@@ -47,7 +48,7 @@ export function ScanPanel() {
       if (!data.ok) throw new Error(data.error);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Tick failed");
+      setError(e instanceof Error ? e.message : "La comprobación falló");
     } finally {
       setLoading(false);
     }
@@ -58,31 +59,31 @@ export function ScanPanel() {
 
   return (
     <Card
-      title="Scan for signals"
-      subtitle="Runs every active strategy × asset through the full Trade Gate (11 checks). Only APPROVED verdicts open a simulated position."
+      title="Buscar señales"
+      subtitle="Pasa cada estrategia activa × activo por el Trade Gate completo (11 comprobaciones). Solo un veredicto APROBADO abre una posición simulada."
       actions={
         <div className="flex gap-2">
           <button onClick={runTick} disabled={loading} className="rounded border border-bg-border px-3 py-1.5 text-xs text-slate-200 hover:bg-white/5 disabled:opacity-50">
-            Check stops/targets
+            Comprobar stops/objetivos
           </button>
           <button onClick={runScan} disabled={loading} className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-black hover:bg-accent-dim disabled:opacity-50">
-            {loading ? "Scanning…" : "Run Scan"}
+            {loading ? "Escaneando…" : "Ejecutar Escaneo"}
           </button>
         </div>
       }
     >
       {error && <p className="mb-2 text-xs text-danger">{error}</p>}
-      {!results && <p className="text-sm text-muted">No scan run yet this session.</p>}
+      {!results && <p className="text-sm text-muted">Aún no se ha ejecutado ningún escaneo en esta sesión.</p>}
       {results && (
         <div className="flex flex-col gap-3">
           <p className="text-xs text-muted">
-            {withSignal.length} signal(s) generated, {noSignalCount} asset/strategy pair(s) had no signal.
+            {withSignal.length} señal(es) generada(s), {noSignalCount} par(es) activo/estrategia sin señal.
           </p>
           {withSignal.map((r, i) => (
             <div key={i} className="rounded border border-bg-border bg-black/20 p-3">
               <div className="mb-1 flex items-center justify-between">
                 <div className="text-sm font-medium text-slate-100">
-                  {r.symbol} · {r.strategyName} · <Badge tone={r.signal!.direction === "LONG" ? "success" : "danger"}>{r.signal!.direction}</Badge>
+                  {r.symbol} · {r.strategyName} · <Badge tone={r.signal!.direction === "LONG" ? "success" : "danger"}>{tDirection(r.signal!.direction)}</Badge>
                 </div>
               </div>
               <p className="mb-2 text-xs text-muted">{r.signal!.reason}</p>

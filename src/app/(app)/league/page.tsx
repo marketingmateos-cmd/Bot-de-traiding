@@ -34,8 +34,8 @@ export default async function LeaguePage() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h1 className="text-lg font-semibold text-slate-100">Strategy League</h1>
-        <p className="mt-1 text-sm text-muted">Ranked by a composite score (Sharpe, Sortino, drawdown, robustness, OOS, sample size) — NOT raw return.</p>
+        <h1 className="text-lg font-semibold text-slate-100">Liga de Estrategias</h1>
+        <p className="mt-1 text-sm text-muted">Clasificada por una puntuación compuesta (Sharpe, Sortino, drawdown, robustez, OOS, tamaño de muestra) — NO por el retorno bruto.</p>
       </div>
 
       <Card>
@@ -43,14 +43,14 @@ export default async function LeaguePage() {
           <table className="w-full text-left text-xs">
             <thead className="text-muted">
               <tr>
-                <th className="py-1.5 pr-3">Rank</th>
-                <th className="py-1.5 pr-3">Strategy</th>
-                <th className="py-1.5 pr-3">Trades</th>
-                <th className="py-1.5 pr-3">Net P&L</th>
+                <th className="py-1.5 pr-3">Puesto</th>
+                <th className="py-1.5 pr-3">Estrategia</th>
+                <th className="py-1.5 pr-3">Operaciones</th>
+                <th className="py-1.5 pr-3">P&L Neto</th>
                 <th className="py-1.5 pr-3">Sharpe</th>
-                <th className="py-1.5 pr-3">Max DD</th>
-                <th className="py-1.5 pr-3">Robustness</th>
-                <th className="py-1.5 pr-3">Composite</th>
+                <th className="py-1.5 pr-3">DD Máx</th>
+                <th className="py-1.5 pr-3">Robustez</th>
+                <th className="py-1.5 pr-3">Compuesta</th>
               </tr>
             </thead>
             <tbody>
@@ -62,7 +62,7 @@ export default async function LeaguePage() {
                   <td className={`py-1.5 pr-3 font-mono ${e.stats.totalNetPnl >= 0 ? "text-accent" : "text-danger"}`}>€{e.stats.totalNetPnl.toFixed(2)}</td>
                   <td className="py-1.5 pr-3 font-mono">{e.stats.sharpe?.toFixed(2) ?? "—"}</td>
                   <td className="py-1.5 pr-3 font-mono">{e.stats.maxDrawdownPct.toFixed(1)}%</td>
-                  <td className="py-1.5 pr-3">{e.robustnessScore !== null ? `${e.robustnessScore}/100` : <Badge tone="muted">not tested</Badge>}</td>
+                  <td className="py-1.5 pr-3">{e.robustnessScore !== null ? `${e.robustnessScore}/100` : <Badge tone="muted">sin probar</Badge>}</td>
                   <td className="py-1.5 pr-3 font-mono font-semibold text-accent">{e.compositeScore}</td>
                 </tr>
               ))}

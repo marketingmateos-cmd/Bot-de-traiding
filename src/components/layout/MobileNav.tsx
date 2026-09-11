@@ -8,10 +8,10 @@ import { Menu, X, LayoutDashboard, LineChart, Wallet, FlaskConical } from "lucid
 import { NAV_GROUPS, NAV_ITEMS } from "./nav";
 
 const QUICK_ITEMS = [
-  { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/markets", label: "Markets", icon: LineChart },
-  { href: "/paper-trading", label: "Trade", icon: FlaskConical },
-  { href: "/portfolio", label: "Portfolio", icon: Wallet },
+  { href: "/dashboard", label: "Inicio", icon: LayoutDashboard },
+  { href: "/markets", label: "Mercados", icon: LineChart },
+  { href: "/paper-trading", label: "Operar", icon: FlaskConical },
+  { href: "/portfolio", label: "Cartera", icon: Wallet },
 ];
 
 export function MobileTopBar() {
@@ -23,7 +23,7 @@ export function MobileTopBar() {
           <div className="flex h-6 w-6 items-center justify-center rounded bg-accent/15 font-mono text-xs font-bold text-accent">λ</div>
           <span className="text-sm font-semibold text-slate-100">Trading Lab</span>
         </div>
-        <button onClick={() => setOpen(true)} aria-label="Open menu" className="rounded p-1.5 text-slate-300 hover:bg-white/5">
+        <button onClick={() => setOpen(true)} aria-label="Abrir menú" className="rounded p-1.5 text-slate-300 hover:bg-white/5">
           <Menu size={20} />
         </button>
       </header>
@@ -31,8 +31,8 @@ export function MobileTopBar() {
       {open && (
         <div className="fixed inset-0 z-50 flex flex-col bg-bg/98 backdrop-blur md:hidden">
           <div className="flex items-center justify-between border-b border-bg-border px-4 py-4">
-            <span className="text-sm font-semibold text-slate-100">Menu</span>
-            <button onClick={() => setOpen(false)} aria-label="Close menu" className="rounded p-1.5 text-slate-300 hover:bg-white/5">
+            <span className="text-sm font-semibold text-slate-100">Menú</span>
+            <button onClick={() => setOpen(false)} aria-label="Cerrar menú" className="rounded p-1.5 text-slate-300 hover:bg-white/5">
               <X size={20} />
             </button>
           </div>

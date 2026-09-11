@@ -80,10 +80,10 @@ export function checkExposureLimits(input: ExposureCheckInput): RiskCheckResult 
   const exposurePctAfter = input.equity > 0 ? (totalNotional / input.equity) * 100 : 100;
 
   if (exposurePctAfter > input.limits.maxExposurePct) {
-    violations.push(`Projected exposure ${exposurePctAfter.toFixed(1)}% exceeds max ${input.limits.maxExposurePct}%.`);
+    violations.push(`La exposición proyectada del ${exposurePctAfter.toFixed(1)}% supera el máximo de ${input.limits.maxExposurePct}%.`);
   }
   if (input.openPositionCount + 1 > input.limits.maxOpenPositions) {
-    violations.push(`Opening this position would exceed max open positions (${input.limits.maxOpenPositions}).`);
+    violations.push(`Abrir esta posición superaría el máximo de posiciones abiertas (${input.limits.maxOpenPositions}).`);
   }
 
   return { passed: violations.length === 0, violations, exposurePctAfter };

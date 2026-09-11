@@ -11,7 +11,7 @@ describe("assessEvidence — Luck vs Edge", () => {
 
   it("flags a high win rate on a small sample as likely luck, not edge", () => {
     const result = assessEvidence({ trades: 40, winRate: 0.85, avgReturnPct: 1, sharpe: 1, sortino: 1, maxDrawdownPct: 5, totalNetPnl: 20, profitFactor: 3 });
-    expect(result.warnings.some((w) => w.toLowerCase().includes("lucky streak"))).toBe(true);
+    expect(result.warnings.some((w) => w.toLowerCase().includes("racha de suerte"))).toBe(true);
   });
 
   it("requires both a large sample AND few warnings to reach HIGH evidence", () => {
@@ -32,7 +32,7 @@ describe("assessEvidence — Luck vs Edge", () => {
       { trades: 100, winRate: 0.5, avgReturnPct: 0.2, sharpe: 0.8, sortino: 0.8, maxDrawdownPct: 15, totalNetPnl: 10, profitFactor: 1.1 },
       { benchmarkBeat: false }
     );
-    expect(result.warnings.some((w) => w.toLowerCase().includes("buy & hold"))).toBe(true);
+    expect(result.warnings.some((w) => w.toLowerCase().includes("buy & hold"))).toBe(true); // "Buy & Hold" se mantiene en inglés como término técnico
   });
 
   it("flags severe drawdown even alongside a positive headline return", () => {

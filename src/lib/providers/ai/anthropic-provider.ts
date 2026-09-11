@@ -24,7 +24,10 @@ no prose before or after:
 }
 
 Be skeptical. A short winning streak is not proof of edge. If evidence is weak, say so
-and prefer LOW_CONFIDENCE or REJECT over APPROVE.`;
+and prefer LOW_CONFIDENCE or REJECT over APPROVE.
+Keep the JSON keys and enum values exactly as specified above (in English), but write every
+free-text string value (reasons, risks, invalidation_conditions) in Spanish — the user of this
+lab reads Spanish.`;
 
 const CRITIC_SYSTEM = `You are the CRITIC / DEVIL'S ADVOCATE layer of a crypto paper-trading research lab.
 Your job is to try to falsify the ANALYST's hypothesis: look for bias, insufficient data,
@@ -37,7 +40,11 @@ Respond with ONLY a single JSON object matching exactly this TypeScript type, no
   "biasesFound": string[],
   "overfittingConcern": boolean,
   "notes": string
-}`;
+}
+
+Keep the JSON keys and enum values exactly as specified above (in English), but write every
+free-text string value (challengedReasons, biasesFound, notes) in Spanish — the user of this lab
+reads Spanish.`;
 
 function safeParseJson<T>(text: string): T | null {
   try {

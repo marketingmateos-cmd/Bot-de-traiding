@@ -3,6 +3,7 @@ import { resolveRiskLimits, type RiskProfile } from "@/lib/engines/riskEngine";
 import { Card } from "@/components/ui/Card";
 import { StatTile } from "@/components/ui/StatTile";
 import { CircuitBreakerList } from "@/components/settings/CircuitBreakerList";
+import { tRiskProfile } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 const ACCOUNT_ID = "main-paper-account";
@@ -21,20 +22,20 @@ export default async function RiskPage() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h1 className="text-lg font-semibold text-slate-100">Risk Center</h1>
-        <p className="mt-1 text-sm text-muted">Independent from strategy/AI decisions — the Trade Gate cannot override these limits.</p>
+        <h1 className="text-lg font-semibold text-slate-100">Centro de Riesgo</h1>
+        <p className="mt-1 text-sm text-muted">Independiente de las decisiones de estrategia/IA — el Trade Gate no puede saltarse estos límites.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatTile label="Risk Profile" value={riskProfile} />
-        <StatTile label="Risk / Trade" value={`${limits.riskPerTradePct}%`} />
-        <StatTile label="Max Exposure" value={`${limits.maxExposurePct}%`} sublabel={`Current: ${exposurePct.toFixed(1)}%`} tone={exposurePct > limits.maxExposurePct ? "negative" : "neutral"} />
-        <StatTile label="Max Open Positions" value={limits.maxOpenPositions} sublabel={`Current: ${openPositions.length}`} />
-        <StatTile label="Max Daily Loss" value={`${limits.maxDailyLossPct}%`} />
-        <StatTile label="Max Drawdown" value={`${limits.maxDrawdownPct}%`} />
+        <StatTile label="Perfil de Riesgo" value={tRiskProfile(riskProfile)} />
+        <StatTile label="Riesgo / Operación" value={`${limits.riskPerTradePct}%`} />
+        <StatTile label="Exposición Máxima" value={`${limits.maxExposurePct}%`} sublabel={`Actual: ${exposurePct.toFixed(1)}%`} tone={exposurePct > limits.maxExposurePct ? "negative" : "neutral"} />
+        <StatTile label="Máx. Posiciones Abiertas" value={limits.maxOpenPositions} sublabel={`Actual: ${openPositions.length}`} />
+        <StatTile label="Pérdida Diaria Máxima" value={`${limits.maxDailyLossPct}%`} />
+        <StatTile label="Drawdown Máximo" value={`${limits.maxDrawdownPct}%`} />
       </div>
 
-      <Card title="Circuit Breakers" subtitle="Independent emergency mechanisms — a tripped breaker blocks ALL new simulated trades until resolved.">
+      <Card title="Cortafuegos" subtitle="Mecanismos de emergencia independientes — un cortafuegos activado bloquea TODAS las nuevas operaciones simuladas hasta resolverse.">
         <CircuitBreakerList breakers={breakers} accountId={ACCOUNT_ID} />
       </Card>
     </div>

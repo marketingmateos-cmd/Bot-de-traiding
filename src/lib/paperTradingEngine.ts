@@ -40,8 +40,8 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
     await createSystemAlert({
       kind: "TRADING_BLOCKED",
       severity: "CRITICAL",
-      title: "Paper trading blocked",
-      message: account.blockedReason ?? "Position reconciliation failed.",
+      title: "Paper trading bloqueado",
+      message: account.blockedReason ?? "Falló la reconciliación de posiciones.",
     });
     return results;
   }
@@ -251,7 +251,7 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
         await createSystemAlert({
           kind: gate.verdict === "APPROVED" ? "SIGNAL_APPROVED" : "SIGNAL_LOW_CONFIDENCE",
           severity: "INFO",
-          title: `Paper ${signal.direction} opened (${gate.verdict}): ${asset.symbol}`,
+          title: `Posición ${signal.direction} simulada abierta (${gate.verdict}): ${asset.symbol}`,
           message: `${version.strategy.name} v${version.version} — ${signal.reason}`,
         });
         openPositions.push(opened.position);
@@ -270,8 +270,8 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
           await createSystemAlert({
             kind: "SIGNAL_BLOCKED",
             severity: "WARN",
-            title: `Signal blocked: ${asset.symbol}`,
-            message: `${version.strategy.name} v${version.version} blocked at ${gate.blockedBy}.`,
+            title: `Señal bloqueada: ${asset.symbol}`,
+            message: `${version.strategy.name} v${version.version} bloqueada en ${gate.blockedBy}.`,
           });
         }
       }

@@ -57,19 +57,19 @@ export function testHypothesis(bars: OHLCVBar[], strategy: StrategyDefinition, p
   });
 
   let status: HypothesisStatus = "INSUFFICIENT_EVIDENCE";
-  let rationale = "Evidence level is LOW — not enough trades or walk-forward history to accept or reject this hypothesis yet.";
+  let rationale = "El nivel de evidencia es BAJO — no hay suficientes operaciones ni historial de walk-forward para aceptar o rechazar esta hipótesis todavía.";
 
   if (evidence.evidenceLevel !== "LOW") {
     if (comparison.strategyBeatsReturn && walkForward.aggregateOosMetrics.winRateOfWindows >= 0.5 && overfitting.risk !== "HIGH") {
       status = "ACCEPTED";
-      rationale = `Beats Buy & Hold by ${comparison.returnGapPct.toFixed(1)}pp, ${(walkForward.aggregateOosMetrics.winRateOfWindows * 100).toFixed(0)}% of OOS windows profitable, overfitting risk ${overfitting.risk}.`;
+      rationale = `Supera a Buy & Hold en ${comparison.returnGapPct.toFixed(1)} puntos porcentuales, ${(walkForward.aggregateOosMetrics.winRateOfWindows * 100).toFixed(0)}% de las ventanas OOS rentables, riesgo de sobreajuste ${overfitting.risk}.`;
     } else {
       status = "REJECTED";
       rationale = !comparison.strategyBeatsReturn
-        ? "Underperforms simple Buy & Hold over the tested period."
+        ? "Rinde peor que un simple Buy & Hold en el periodo probado."
         : overfitting.risk === "HIGH"
-        ? "Overfitting risk is HIGH — the backtest result is not trustworthy as-is."
-        : "Out-of-sample windows do not confirm the in-sample edge.";
+        ? "El riesgo de sobreajuste es ALTO — el resultado del backtest no es fiable tal cual."
+        : "Las ventanas fuera de muestra no confirman la ventaja observada dentro de muestra.";
     }
   }
 

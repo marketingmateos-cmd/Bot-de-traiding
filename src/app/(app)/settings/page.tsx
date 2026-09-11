@@ -18,34 +18,34 @@ export default async function SettingsPage() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h1 className="text-lg font-semibold text-slate-100">Settings</h1>
-        <p className="mt-1 text-sm text-muted">Provider status, risk configuration, AI budget, and circuit breaker management.</p>
+        <h1 className="text-lg font-semibold text-slate-100">Ajustes</h1>
+        <p className="mt-1 text-sm text-muted">Estado de los proveedores, configuración de riesgo, presupuesto de IA y gestión de cortafuegos.</p>
       </div>
 
-      <Card title="Environment" subtitle={`APP_ENV=${env.appEnv}`}>
+      <Card title="Entorno" subtitle={`APP_ENV=${env.appEnv}`}>
         <div className="flex flex-wrap gap-2">
-          <Badge tone={env.isDemoMarketData ? "muted" : "success"}>Market Data: {env.isDemoMarketData ? "DEMO" : "LIVE"}</Badge>
-          <Badge tone={env.isDemoNews ? "muted" : "success"}>News: {env.isDemoNews ? "DEMO" : "LIVE"}</Badge>
-          <Badge tone={env.isDemoSentiment ? "muted" : "success"}>Sentiment: {env.isDemoSentiment ? "DEMO" : "LIVE"}</Badge>
-          <Badge tone={env.isDemoOnChain ? "muted" : "success"}>On-Chain: {env.isDemoOnChain ? "DEMO" : "LIVE"}</Badge>
-          <Badge tone={env.hasAnthropicKey ? "success" : "muted"}>AI: {env.hasAnthropicKey ? `LIVE (${env.aiModel})` : "DEMO (rule-based)"}</Badge>
+          <Badge tone={env.isDemoMarketData ? "muted" : "success"}>Datos de Mercado: {env.isDemoMarketData ? "DEMO" : "EN VIVO"}</Badge>
+          <Badge tone={env.isDemoNews ? "muted" : "success"}>Noticias: {env.isDemoNews ? "DEMO" : "EN VIVO"}</Badge>
+          <Badge tone={env.isDemoSentiment ? "muted" : "success"}>Sentimiento: {env.isDemoSentiment ? "DEMO" : "EN VIVO"}</Badge>
+          <Badge tone={env.isDemoOnChain ? "muted" : "success"}>On-Chain: {env.isDemoOnChain ? "DEMO" : "EN VIVO"}</Badge>
+          <Badge tone={env.hasAnthropicKey ? "success" : "muted"}>IA: {env.hasAnthropicKey ? `EN VIVO (${env.aiModel})` : "DEMO (basada en reglas)"}</Badge>
         </div>
       </Card>
 
-      <Card title="Risk Profile">
+      <Card title="Perfil de Riesgo">
         <RiskProfileForm accountId={ACCOUNT_ID} current={account?.riskProfile ?? "BALANCED"} />
       </Card>
 
-      <Card title="AI Budget">
+      <Card title="Presupuesto de IA">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatTile label="Calls Today" value={`${budget.callsToday}/${budget.dailyBudget}`} />
-          <StatTile label="Est. Monthly Cost" value={`$${budget.monthlyCostUsd.toFixed(2)} / $${budget.monthlyCostBudgetUsd}`} />
-          <StatTile label="Cache Hit Rate" value={`${(budget.cacheHitRate * 100).toFixed(0)}%`} />
-          <StatTile label="Mode" value={budget.shouldUseCacheOnly ? "Cache Only" : budget.shouldThrottle ? "Throttled" : "Normal"} />
+          <StatTile label="Llamadas Hoy" value={`${budget.callsToday}/${budget.dailyBudget}`} />
+          <StatTile label="Coste Mensual Est." value={`$${budget.monthlyCostUsd.toFixed(2)} / $${budget.monthlyCostBudgetUsd}`} />
+          <StatTile label="Tasa de Acierto de Caché" value={`${(budget.cacheHitRate * 100).toFixed(0)}%`} />
+          <StatTile label="Modo" value={budget.shouldUseCacheOnly ? "Solo Caché" : budget.shouldThrottle ? "Restringido" : "Normal"} />
         </div>
       </Card>
 
-      <Card title="Circuit Breakers">
+      <Card title="Cortafuegos">
         <CircuitBreakerList breakers={breakers} accountId={ACCOUNT_ID} />
       </Card>
     </div>

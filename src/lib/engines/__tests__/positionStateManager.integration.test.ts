@@ -217,7 +217,7 @@ describe("positionStateManager — reconciliation", () => {
 
     const result = await reconcilePositions(accountId);
     expect(result.consistent).toBe(false);
-    expect(result.issues.some((i) => i.includes("Duplicate open positions"))).toBe(true);
+    expect(result.issues.some((i) => i.includes("duplicadas"))).toBe(true);
 
     const account = await prisma.paperAccount.findUniqueOrThrow({ where: { id: accountId } });
     expect(account.isTradingBlocked).toBe(true);

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { tRiskProfile } from "@/lib/i18n";
 
 const PROFILES = ["CONSERVATIVE", "BALANCED", "AGGRESSIVE"];
 
@@ -32,7 +33,7 @@ export function RiskProfileForm({ accountId, current }: { accountId: string; cur
             value === p ? "border-accent bg-accent/10 text-accent" : "border-bg-border text-muted hover:text-slate-200"
           }`}
         >
-          {p}
+          {tRiskProfile(p)}
         </button>
       ))}
     </div>

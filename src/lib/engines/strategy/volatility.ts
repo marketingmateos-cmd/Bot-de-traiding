@@ -32,7 +32,7 @@ export const volatilityStrategy: StrategyDefinition = {
       kind: "VOLATILITY",
       direction,
       strength: Math.min(1, (expansionRatio - ratio) / ratio + 0.4),
-      reason: `ATR expanded ${expansionRatio.toFixed(2)}x vs prior average range (threshold ${ratio}x); trading breakout direction of expansion candle.`,
+      reason: `El ATR se expandió ${expansionRatio.toFixed(2)}x frente al rango medio anterior (umbral ${ratio}x); se opera en la dirección de ruptura de la vela de expansión.`,
     };
   },
 };

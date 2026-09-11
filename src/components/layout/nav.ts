@@ -5,30 +5,30 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", group: "Overview" },
-  { href: "/markets", label: "Markets", group: "Overview" },
-  { href: "/intelligence", label: "Crypto Intelligence", group: "Overview" },
-  { href: "/news", label: "News", group: "Overview" },
-  { href: "/sentiment", label: "Sentiment", group: "Overview" },
-  { href: "/onchain", label: "On-Chain", group: "Overview" },
+  { href: "/dashboard", label: "Panel Principal", group: "Resumen" },
+  { href: "/markets", label: "Mercados", group: "Resumen" },
+  { href: "/intelligence", label: "Inteligencia Cripto", group: "Resumen" },
+  { href: "/news", label: "Noticias", group: "Resumen" },
+  { href: "/sentiment", label: "Sentimiento", group: "Resumen" },
+  { href: "/onchain", label: "On-Chain", group: "Resumen" },
 
-  { href: "/strategies", label: "Strategies", group: "Trading" },
+  { href: "/strategies", label: "Estrategias", group: "Trading" },
   { href: "/paper-trading", label: "Paper Trading", group: "Trading" },
-  { href: "/portfolio", label: "Portfolio", group: "Trading" },
-  { href: "/journal", label: "Trade Journal", group: "Trading" },
+  { href: "/portfolio", label: "Cartera", group: "Trading" },
+  { href: "/journal", label: "Diario de Operaciones", group: "Trading" },
 
-  { href: "/research", label: "AI Research Lab", group: "Research" },
-  { href: "/experiments", label: "Experiments", group: "Research" },
-  { href: "/backtesting", label: "Backtesting", group: "Research" },
-  { href: "/walk-forward", label: "Walk Forward", group: "Research" },
-  { href: "/monte-carlo", label: "Monte Carlo", group: "Research" },
-  { href: "/robustness", label: "Robustness Lab", group: "Research" },
+  { href: "/research", label: "Laboratorio de IA", group: "Investigación" },
+  { href: "/experiments", label: "Experimentos", group: "Investigación" },
+  { href: "/backtesting", label: "Backtesting", group: "Investigación" },
+  { href: "/walk-forward", label: "Walk Forward", group: "Investigación" },
+  { href: "/monte-carlo", label: "Monte Carlo", group: "Investigación" },
+  { href: "/robustness", label: "Laboratorio de Robustez", group: "Investigación" },
 
-  { href: "/risk", label: "Risk Center", group: "Governance" },
-  { href: "/league", label: "Strategy League", group: "Governance" },
-  { href: "/luck-vs-edge", label: "Luck vs Edge", group: "Governance" },
-  { href: "/system-health", label: "System Health", group: "Governance" },
-  { href: "/settings", label: "Settings", group: "Governance" },
+  { href: "/risk", label: "Centro de Riesgo", group: "Gobernanza" },
+  { href: "/league", label: "Liga de Estrategias", group: "Gobernanza" },
+  { href: "/luck-vs-edge", label: "Suerte vs Ventaja", group: "Gobernanza" },
+  { href: "/system-health", label: "Salud del Sistema", group: "Gobernanza" },
+  { href: "/settings", label: "Ajustes", group: "Gobernanza" },
 ];
 
-export const NAV_GROUPS = ["Overview", "Trading", "Research", "Governance"] as const;
+export const NAV_GROUPS = ["Resumen", "Trading", "Investigación", "Gobernanza"] as const;

@@ -20,7 +20,7 @@ export const trendFollowingStrategy: StrategyDefinition = {
         kind: "TREND_FOLLOWING",
         direction: "LONG",
         strength: Math.min(1, features.trend),
-        reason: `EMA20 above EMA50 with trend score ${features.trend.toFixed(2)} exceeding threshold ${threshold}.`,
+        reason: `EMA20 por encima de EMA50 con puntuación de tendencia ${features.trend.toFixed(2)}, superando el umbral ${threshold}.`,
       };
     }
     if (features.trend < -threshold) {
@@ -28,7 +28,7 @@ export const trendFollowingStrategy: StrategyDefinition = {
         kind: "TREND_FOLLOWING",
         direction: "SHORT",
         strength: Math.min(1, Math.abs(features.trend)),
-        reason: `EMA20 below EMA50 with trend score ${features.trend.toFixed(2)} exceeding threshold ${threshold}.`,
+        reason: `EMA20 por debajo de EMA50 con puntuación de tendencia ${features.trend.toFixed(2)}, superando el umbral ${threshold}.`,
       };
     }
     return null;

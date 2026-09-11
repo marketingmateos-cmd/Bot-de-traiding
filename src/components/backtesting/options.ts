@@ -1,11 +1,11 @@
 export const STRATEGY_OPTIONS = [
-  { id: "trend-following", name: "Trend Following" },
+  { id: "trend-following", name: "Seguimiento de Tendencia" },
   { id: "momentum", name: "Momentum" },
-  { id: "breakout", name: "Breakout" },
-  { id: "mean-reversion", name: "Mean Reversion" },
-  { id: "volatility-expansion", name: "Volatility" },
-  { id: "multi-timeframe", name: "Multi-Timeframe" },
-  { id: "event-driven", name: "Event Driven" },
+  { id: "breakout", name: "Ruptura" },
+  { id: "mean-reversion", name: "Reversión a la Media" },
+  { id: "volatility-expansion", name: "Volatilidad" },
+  { id: "multi-timeframe", name: "Multi-Temporalidad" },
+  { id: "event-driven", name: "Dirigida por Eventos" },
 ];
 
 export const ASSET_OPTIONS = ["BTC", "ETH", "SOL", "XRP", "BNB", "DOGE", "ADA"];

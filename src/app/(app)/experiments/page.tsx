@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { tVerdict } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -10,29 +11,29 @@ export default async function ExperimentsPage() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h1 className="text-lg font-semibold text-slate-100">Experiments</h1>
+        <h1 className="text-lg font-semibold text-slate-100">Experimentos</h1>
         <p className="mt-1 text-sm text-muted">
-          Long-term experiments (7/30/90/180/365-day windows) are created automatically whenever a hypothesis is tested from the AI Research Lab.
+          Los experimentos de largo plazo (ventanas de 7/30/90/180/365 días) se crean automáticamente cada vez que se prueba una hipótesis desde el Laboratorio de IA.
         </p>
       </div>
 
       {experiments.length === 0 ? (
         <Card>
-          <p className="text-sm text-muted">No experiments yet — test a hypothesis in the AI Research Lab to create one.</p>
+          <p className="text-sm text-muted">Aún no hay experimentos — prueba una hipótesis en el Laboratorio de IA para crear uno.</p>
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {experiments.map((e) => {
             const result = e.result as { status?: string; metrics?: { totalReturnPct?: number; sharpe?: number | null } } | null;
             return (
-              <Card key={e.id} title={e.name} subtitle={`${e.durationDays} day window`}>
+              <Card key={e.id} title={e.name} subtitle={`ventana de ${e.durationDays} días`}>
                 <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <Badge tone={e.status === "COMPLETED" ? "success" : "muted"}>{e.status}</Badge>
-                  {result?.status && <Badge tone="info">{result.status}</Badge>}
+                  <Badge tone={e.status === "COMPLETED" ? "success" : "muted"}>{e.status === "COMPLETED" ? "COMPLETADO" : e.status}</Badge>
+                  {result?.status && <Badge tone="info">{tVerdict(result.status)}</Badge>}
                 </div>
                 {result?.metrics && (
                   <div className="mt-2 flex gap-4 font-mono text-xs">
-                    <span>Return: {result.metrics.totalReturnPct?.toFixed(1)}%</span>
+                    <span>Retorno: {result.metrics.totalReturnPct?.toFixed(1)}%</span>
                     <span>Sharpe: {result.metrics.sharpe?.toFixed(2) ?? "—"}</span>
                   </div>
                 )}

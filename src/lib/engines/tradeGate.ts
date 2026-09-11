@@ -68,15 +68,15 @@ export function runTradeGate(input: TradeGateInput): TradeGateResult {
     passed: !input.dataQuality.blocksTrading,
     downgrade: false,
     detail: input.dataQuality.blocksTrading
-      ? `Data quality score ${input.dataQuality.score} is below the minimum required to trade.`
-      : `Data quality score ${input.dataQuality.score}/100.`,
+      ? `La calidad de datos (${input.dataQuality.score}) está por debajo del mínimo requerido para operar.`
+      : `Calidad de datos: ${input.dataQuality.score}/100.`,
   });
 
   steps.push({
     name: "MARKET_CHECK",
     passed: input.marketHealthy,
     downgrade: false,
-    detail: input.marketHealthy ? "Market data feed is healthy." : "Market data feed is unreachable or stale.",
+    detail: input.marketHealthy ? "El feed de datos de mercado funciona correctamente." : "El feed de datos de mercado no está disponible o está desactualizado.",
   });
 
   const regimeOk = isRegimeCompatible(input.recommendedRegimes, input.regime.regime);
@@ -85,8 +85,8 @@ export function runTradeGate(input: TradeGateInput): TradeGateResult {
     passed: regimeOk,
     downgrade: false,
     detail: regimeOk
-      ? `Regime ${input.regime.regime} is compatible with this strategy version's recommended regimes.`
-      : `Regime ${input.regime.regime} is NOT in this strategy version's recommended regimes (${input.recommendedRegimes.join(", ")}).`,
+      ? `El régimen ${input.regime.regime} es compatible con los regímenes recomendados de esta versión de estrategia.`
+      : `El régimen ${input.regime.regime} NO está entre los regímenes recomendados de esta versión de estrategia (${input.recommendedRegimes.join(", ")}).`,
   });
 
   const hasSignal = input.strategySignal !== null;
@@ -94,7 +94,7 @@ export function runTradeGate(input: TradeGateInput): TradeGateResult {
     name: "STRATEGY_CHECK",
     passed: hasSignal,
     downgrade: false,
-    detail: hasSignal ? `Strategy produced a ${input.strategySignal!.direction} signal: ${input.strategySignal!.reason}` : "No strategy signal present.",
+    detail: hasSignal ? `La estrategia generó una señal ${input.strategySignal!.direction}: ${input.strategySignal!.reason}` : "No hay ninguna señal de estrategia presente.",
   });
 
   const newsBlocking = input.news.topStories.some((n) => n.category === "SECURITY" && n.sentiment < -0.6 && n.impactScore > 70);
@@ -103,8 +103,8 @@ export function runTradeGate(input: TradeGateInput): TradeGateResult {
     passed: !newsBlocking,
     downgrade: !newsBlocking && input.news.score < 35,
     detail: newsBlocking
-      ? "A high-impact, strongly negative security-related news item was found."
-      : `News component score ${input.news.score}/100.`,
+      ? "Se encontró una noticia de seguridad de alto impacto y fuertemente negativa."
+      : `Puntuación del componente de noticias: ${input.news.score}/100.`,
   });
 
   steps.push({
@@ -112,8 +112,8 @@ export function runTradeGate(input: TradeGateInput): TradeGateResult {
     passed: true,
     downgrade: input.sentiment.divergence,
     detail: input.sentiment.divergence
-      ? "Sentiment/price divergence detected — confidence downgraded."
-      : `Sentiment score ${input.sentiment.score}/100, trend ${input.sentiment.trend.toFixed(3)}.`,
+      ? "Divergencia sentimiento/precio detectada — confianza rebajada."
+      : `Puntuación de sentimiento: ${input.sentiment.score}/100, tendencia ${input.sentiment.trend.toFixed(3)}.`,
   });
 
   const onChainAvailable = input.onChain.filter((m) => m.available).length;
@@ -121,7 +121,7 @@ export function runTradeGate(input: TradeGateInput): TradeGateResult {
     name: "ONCHAIN_CHECK",
     passed: true,
     downgrade: onChainAvailable === 0,
-    detail: onChainAvailable > 0 ? `${onChainAvailable} on-chain metric(s) available.` : "No on-chain data available for this asset — DATA UNAVAILABLE.",
+    detail: onChainAvailable > 0 ? `${onChainAvailable} métrica(s) on-chain disponible(s).` : "No hay datos on-chain disponibles para este activo — DATOS NO DISPONIBLES.",
   });
 
   const analystOk = input.aiAnalyst.recommendation !== "REJECT";
@@ -129,7 +129,7 @@ export function runTradeGate(input: TradeGateInput): TradeGateResult {
     name: "AI_ANALYST",
     passed: analystOk,
     downgrade: input.aiAnalyst.recommendation === "LOW_CONFIDENCE",
-    detail: `AI Analyst recommends ${input.aiAnalyst.recommendation} (confidence ${(input.aiAnalyst.confidence * 100).toFixed(0)}%).`,
+    detail: `La IA Analista recomienda ${input.aiAnalyst.recommendation} (confianza ${(input.aiAnalyst.confidence * 100).toFixed(0)}%).`,
   });
 
   const criticOk = input.aiCritic.verdict !== "BLOCKED";
@@ -137,7 +137,7 @@ export function runTradeGate(input: TradeGateInput): TradeGateResult {
     name: "AI_CRITIC",
     passed: criticOk,
     downgrade: input.aiCritic.verdict === "LOW_CONFIDENCE",
-    detail: `AI Critic verdict: ${input.aiCritic.verdict}.${input.aiCritic.challengedReasons.length ? " Challenges: " + input.aiCritic.challengedReasons.join("; ") : ""}`,
+    detail: `Veredicto de la IA Crítica: ${input.aiCritic.verdict}.${input.aiCritic.challengedReasons.length ? " Objeciones: " + input.aiCritic.challengedReasons.join("; ") : ""}`,
   });
 
   const riskOk = input.risk.passed && !input.circuitBreakerTripped;
@@ -146,9 +146,9 @@ export function runTradeGate(input: TradeGateInput): TradeGateResult {
     passed: riskOk,
     downgrade: false,
     detail: input.circuitBreakerTripped
-      ? `Circuit breaker(s) tripped: ${input.circuitBreakerReasons.join(", ")}`
+      ? `Cortafuegos activado(s): ${input.circuitBreakerReasons.join(", ")}`
       : input.risk.passed
-      ? `Projected exposure ${input.risk.exposurePctAfter.toFixed(1)}% within limits.`
+      ? `Exposición proyectada ${input.risk.exposurePctAfter.toFixed(1)}% dentro de los límites.`
       : input.risk.violations.join(" "),
   });
 
@@ -160,7 +160,7 @@ export function runTradeGate(input: TradeGateInput): TradeGateResult {
     // otherwise no strategy could ever bootstrap real performance history.
     passed: true,
     downgrade: input.robustness.evidenceLevel === "LOW",
-    detail: `Evidence level: ${input.robustness.evidenceLevel}. ${input.robustness.warnings.join(" ")}`,
+    detail: `Nivel de evidencia: ${input.robustness.evidenceLevel}. ${input.robustness.warnings.join(" ")}`,
   });
 
   const failedStep = steps.find((s) => !s.passed);

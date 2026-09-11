@@ -24,7 +24,7 @@ export const momentumStrategy: StrategyDefinition = {
         kind: "MOMENTUM",
         direction: "LONG",
         strength: Math.min(1, features.momentum + 0.2),
-        reason: `RSI ${features.rsi14.toFixed(1)} >= ${rsiLongMin} with positive momentum${macdConfirm ? " and confirming MACD histogram" : ""}.`,
+        reason: `RSI ${features.rsi14.toFixed(1)} >= ${rsiLongMin} con momentum positivo${macdConfirm ? " e histograma MACD de confirmación" : ""}.`,
       };
     }
     if (features.rsi14 <= rsiShortMax && features.momentum < -0.1 && (!macdConfirm || (macdOk && (features.macdHistogram as number) < 0))) {
@@ -32,7 +32,7 @@ export const momentumStrategy: StrategyDefinition = {
         kind: "MOMENTUM",
         direction: "SHORT",
         strength: Math.min(1, Math.abs(features.momentum) + 0.2),
-        reason: `RSI ${features.rsi14.toFixed(1)} <= ${rsiShortMax} with negative momentum${macdConfirm ? " and confirming MACD histogram" : ""}.`,
+        reason: `RSI ${features.rsi14.toFixed(1)} <= ${rsiShortMax} con momentum negativo${macdConfirm ? " e histograma MACD de confirmación" : ""}.`,
       };
     }
     return null;

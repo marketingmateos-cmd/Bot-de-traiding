@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Crypto AI Trading Lab",
-  description: "A rigorous, self-skeptical crypto research & paper-trading laboratory. No real orders are ever sent.",
+  description: "Un laboratorio de investigación y paper trading de criptomonedas, riguroso y escéptico consigo mismo. Nunca se envía ninguna orden real.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -28,7 +28,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="es" className="h-full antialiased">
       <body className="min-h-full bg-bg text-slate-200 font-sans">
         {children}
         <ServiceWorkerRegister />

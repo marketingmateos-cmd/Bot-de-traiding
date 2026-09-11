@@ -30,30 +30,30 @@ export interface PostMortemResult {
  */
 export function runPostMortem(input: PostMortemInput): PostMortemResult {
   if (input.hypothesisWasSound === null) {
-    return { classification: "INSUFFICIENT_DATA", notes: "No recorded AI analysis/critic verdict to evaluate the original hypothesis against." };
+    return { classification: "INSUFFICIENT_DATA", notes: "No hay veredicto de análisis/crítica de IA registrado con el que evaluar la hipótesis original." };
   }
 
   if (!Number.isFinite(input.netPnl) || Math.abs(input.netPnl) > 1e9) {
-    return { classification: "ANOMALY", notes: "Trade P&L is non-finite or implausibly large — flagging for manual review." };
+    return { classification: "ANOMALY", notes: "El P&L de la operación no es finito o es implausiblemente grande — se marca para revisión manual." };
   }
 
   const won = input.netPnl > 0;
   const goodIdea = input.hypothesisWasSound && input.regimeWasAppropriate && !input.hadContradictingInformation;
 
   if (goodIdea && won) {
-    return { classification: "GOOD_EXECUTION", notes: "Well-reasoned entry in a compatible regime, and it worked out." };
+    return { classification: "GOOD_EXECUTION", notes: "Entrada bien razonada en un régimen compatible, y salió bien." };
   }
   if (!goodIdea && !won) {
-    return { classification: "BAD_EXECUTION", notes: "Entry had known weaknesses (wrong regime, contradicting information, or weak hypothesis) and lost — as expected." };
+    return { classification: "BAD_EXECUTION", notes: "La entrada tenía debilidades conocidas (régimen incorrecto, información contradictoria o hipótesis débil) y perdió — como cabía esperar." };
   }
   if (goodIdea && !won) {
     return {
       classification: "GOOD_IDEA_BAD_RESULT",
-      notes: `The reasoning was sound but the trade lost (exit: ${input.exitReason}). This is normal variance, not a reason to change the strategy.`,
+      notes: `El razonamiento era sólido pero la operación perdió (salida: ${input.exitReason}). Esto es varianza normal, no un motivo para cambiar la estrategia.`,
     };
   }
   return {
     classification: "BAD_IDEA_GOOD_RESULT",
-    notes: "The entry had known weaknesses but the trade won anyway. Treat this as luck, not validation — do not increase confidence in this setup from this result alone.",
+    notes: "La entrada tenía debilidades conocidas pero la operación ganó de todos modos. Trátalo como suerte, no como validación — no aumentes la confianza en este planteamiento solo por este resultado.",
   };
 }

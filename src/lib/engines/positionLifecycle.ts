@@ -88,7 +88,7 @@ export async function tickPositions(accountId: string) {
         kind: stopCheck.reason === "TAKE_PROFIT" ? "TAKE_PROFIT_HIT" : "STOP_LOSS_HIT",
         severity: "INFO",
         title: `${stopCheck.reason} — ${position.asset.symbol}`,
-        message: `Closed ${position.direction} position at ${stopCheck.exitPrice.toFixed(4)}, net P&L ${netPnl.toFixed(2)}.`,
+        message: `Posición ${position.direction} cerrada a ${stopCheck.exitPrice.toFixed(4)}, P&L neto ${netPnl.toFixed(2)}.`,
       });
       await logAudit({ action: "PAPER_POSITION_CLOSED", entity: "PaperPosition", entityId: position.id, data: { reason: stopCheck.reason, netPnl } });
       closedTrades.push(trade.id);

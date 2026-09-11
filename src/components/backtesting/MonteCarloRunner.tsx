@@ -35,8 +35,8 @@ export function MonteCarloRunner() {
   return (
     <div className="flex flex-col gap-4">
       <Card
-        title="Run Monte Carlo Simulation"
-        subtitle="Resamples the strategy's OWN historical trades in random order (bootstrap) — characterizes risk of ruin, never used to project guaranteed future profit."
+        title="Ejecutar Simulación Monte Carlo"
+        subtitle="Re-muestrea las operaciones históricas PROPIAS de la estrategia en orden aleatorio (bootstrap) — caracteriza el riesgo de ruina, nunca se usa para proyectar un beneficio futuro garantizado."
       >
         <div className="flex flex-wrap items-center gap-2">
           <select value={strategyDefId} onChange={(e) => setStrategyDefId(e.target.value)} className="rounded border border-bg-border bg-black/20 px-2 py-1.5 text-xs">
@@ -50,7 +50,7 @@ export function MonteCarloRunner() {
             ))}
           </select>
           <button onClick={run} disabled={loading} className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50">
-            {loading ? "Simulating…" : "Run Monte Carlo"}
+            {loading ? "Simulando…" : "Ejecutar Monte Carlo"}
           </button>
         </div>
       </Card>
@@ -59,22 +59,22 @@ export function MonteCarloRunner() {
         <>
           {data.tradeCount < 20 && (
             <div className="rounded border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn">
-              Only {data.tradeCount} historical trade(s) available — the resulting distribution is itself low-confidence.
+              Solo hay {data.tradeCount} operación(es) histórica(s) disponible(s) — la distribución resultante es en sí misma de baja confianza.
             </div>
           )}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-            <StatTile label="Iterations" value={data.monteCarlo.iterations} />
-            <StatTile label="Median Return" value={`${data.monteCarlo.finalReturnPct.median.toFixed(1)}%`} />
-            <StatTile label="5th–95th pct Return" value={`${data.monteCarlo.finalReturnPct.p5.toFixed(0)}% / ${data.monteCarlo.finalReturnPct.p95.toFixed(0)}%`} />
-            <StatTile label="Median Max Drawdown" value={`${data.monteCarlo.maxDrawdownPct.p50.toFixed(1)}%`} />
+            <StatTile label="Iteraciones" value={data.monteCarlo.iterations} />
+            <StatTile label="Retorno Mediano" value={`${data.monteCarlo.finalReturnPct.median.toFixed(1)}%`} />
+            <StatTile label="Retorno percentil 5–95" value={`${data.monteCarlo.finalReturnPct.p5.toFixed(0)}% / ${data.monteCarlo.finalReturnPct.p95.toFixed(0)}%`} />
+            <StatTile label="Drawdown Máximo Mediano" value={`${data.monteCarlo.maxDrawdownPct.p50.toFixed(1)}%`} />
             <StatTile
-              label={`Probability of Ruin (>${data.monteCarlo.ruinThresholdPct}% loss)`}
+              label={`Probabilidad de Ruina (>${data.monteCarlo.ruinThresholdPct}% pérdida)`}
               value={`${(data.monteCarlo.probabilityOfRuin * 100).toFixed(1)}%`}
               tone={data.monteCarlo.probabilityOfRuin > 0.1 ? "negative" : "neutral"}
             />
-            <StatTile label="Probability of Loss" value={`${(data.monteCarlo.probabilityOfLoss * 100).toFixed(1)}%`} tone={data.monteCarlo.probabilityOfLoss > 0.4 ? "negative" : "neutral"} />
+            <StatTile label="Probabilidad de Pérdida" value={`${(data.monteCarlo.probabilityOfLoss * 100).toFixed(1)}%`} tone={data.monteCarlo.probabilityOfLoss > 0.4 ? "negative" : "neutral"} />
           </div>
-          {data.monteCarlo.probabilityOfRuin > 0.15 && <Badge tone="danger">High risk of ruin under resampled trade sequencing</Badge>}
+          {data.monteCarlo.probabilityOfRuin > 0.15 && <Badge tone="danger">Alto riesgo de ruina bajo secuencias de operaciones re-muestreadas</Badge>}
         </>
       )}
     </div>

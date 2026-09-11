@@ -8,6 +8,7 @@ import { SUPPORTED_ASSETS } from "@/lib/env";
 import { Card } from "@/components/ui/Card";
 import { StatTile } from "@/components/ui/StatTile";
 import { Badge, regimeTone, verdictTone } from "@/components/ui/Badge";
+import { tDirection, tExitReason, tRegime, tSeverity } from "@/lib/i18n";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -63,15 +64,15 @@ export default async function DashboardPage() {
     <div className="flex flex-col gap-5">
       <div>
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold text-slate-100">Dashboard</h1>
-          <Badge tone="muted">DEMO MODE</Badge>
+          <h1 className="text-lg font-semibold text-slate-100">Panel Principal</h1>
+          <Badge tone="muted">MODO DEMO</Badge>
         </div>
-        <p className="mt-1 text-sm text-muted">What&apos;s happening right now across the lab — paper trading only, nothing here touches real money.</p>
+        <p className="mt-1 text-sm text-muted">Qué está pasando ahora mismo en el laboratorio — solo paper trading, nada aquí toca dinero real.</p>
       </div>
 
       {breakers.length > 0 && (
         <Card className="border-danger/40 bg-danger/5">
-          <div className="flex items-center gap-2 text-sm font-semibold text-danger">Circuit breaker(s) tripped — new paper trades are blocked</div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-danger">Cortafuegos activado(s) — nuevas operaciones simuladas bloqueadas</div>
           <ul className="mt-2 flex flex-col gap-1 text-xs text-slate-300">
             {breakers.map((b) => (
               <li key={b.id}>
@@ -80,99 +81,99 @@ export default async function DashboardPage() {
             ))}
           </ul>
           <Link href="/risk" className="mt-2 inline-block text-xs text-accent underline">
-            Go to Risk Center to resolve →
+            Ir al Centro de Riesgo para resolverlo →
           </Link>
         </Card>
       )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
-        <StatTile label="Portfolio Equity" value={`€${equity.toFixed(2)}`} sublabel={`Start: €${(account?.startingBalance ?? 100).toFixed(2)}`} />
-        <StatTile label="Total P&L" value={`${totalPnl >= 0 ? "+" : ""}€${totalPnl.toFixed(2)}`} tone={totalPnl >= 0 ? "positive" : "negative"} />
-        <StatTile label="Daily P&L" value={`${dailyPnl >= 0 ? "+" : ""}€${dailyPnl.toFixed(2)}`} tone={dailyPnl >= 0 ? "positive" : "negative"} />
-        <StatTile label="Drawdown" value={`${drawdown.current.toFixed(1)}%`} sublabel={`Max: ${drawdown.max.toFixed(1)}%`} tone={drawdown.current > 10 ? "negative" : "neutral"} />
-        <StatTile label="Win Rate" value={`${winRate.toFixed(0)}%`} sublabel={`${allTrades.length} closed trades`} />
-        <StatTile label="Open Positions" value={openPositions.length} />
+        <StatTile label="Equity de la Cartera" value={`€${equity.toFixed(2)}`} sublabel={`Inicio: €${(account?.startingBalance ?? 100).toFixed(2)}`} />
+        <StatTile label="P&L Total" value={`${totalPnl >= 0 ? "+" : ""}€${totalPnl.toFixed(2)}`} tone={totalPnl >= 0 ? "positive" : "negative"} />
+        <StatTile label="P&L Diario" value={`${dailyPnl >= 0 ? "+" : ""}€${dailyPnl.toFixed(2)}`} tone={dailyPnl >= 0 ? "positive" : "negative"} />
+        <StatTile label="Drawdown" value={`${drawdown.current.toFixed(1)}%`} sublabel={`Máx: ${drawdown.max.toFixed(1)}%`} tone={drawdown.current > 10 ? "negative" : "neutral"} />
+        <StatTile label="Tasa de Acierto" value={`${winRate.toFixed(0)}%`} sublabel={`${allTrades.length} operaciones cerradas`} />
+        <StatTile label="Posiciones Abiertas" value={openPositions.length} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card title="Market Intelligence — BTC" subtitle={`Regime: ${headline.regime.regime}`} className="lg:col-span-1">
+        <Card title="Inteligencia de Mercado — BTC" subtitle={`Régimen: ${tRegime(headline.regime.regime)}`} className="lg:col-span-1">
           {headline.marketIntelligence ? (
             <>
               <div className="mb-3 font-mono text-3xl font-bold text-accent">{headline.marketIntelligence.score}<span className="text-sm text-muted">/100</span></div>
               <div className="flex flex-wrap gap-1.5">
-                <Badge tone={regimeTone(headline.regime.regime)}>{headline.regime.regime}</Badge>
-                <Badge tone="muted">Data Confidence {headline.marketIntelligence.dataConfidence}%</Badge>
+                <Badge tone={regimeTone(headline.regime.regime)}>{tRegime(headline.regime.regime)}</Badge>
+                <Badge tone="muted">Confianza de Datos {headline.marketIntelligence.dataConfidence}%</Badge>
               </div>
             </>
           ) : (
-            <p className="text-sm text-muted">Insufficient bars to compute yet.</p>
+            <p className="text-sm text-muted">Aún no hay suficientes velas para calcularlo.</p>
           )}
           <Link href="/intelligence" className="mt-3 inline-block text-xs text-accent underline">
-            Full breakdown →
+            Ver desglose completo →
           </Link>
         </Card>
 
-        <Card title="What is the system learning?" className="lg:col-span-1">
+        <Card title="¿Qué está aprendiendo el sistema?" className="lg:col-span-1">
           <ul className="flex flex-col gap-2 text-xs text-slate-300">
             <li>
-              <span className="font-semibold text-slate-100">{leagueEntries.length}</span> active strategy version(s) tracked.
+              <span className="font-semibold text-slate-100">{leagueEntries.length}</span> versión(es) de estrategia activa(s) monitorizada(s).
             </li>
             <li>
-              <span className="font-semibold text-warn">{insufficientEvidenceCount}</span> strategy version(s) still have INSUFFICIENT EVIDENCE — see{" "}
-              <Link href="/luck-vs-edge" className="text-accent underline">Luck vs Edge</Link>.
+              <span className="font-semibold text-warn">{insufficientEvidenceCount}</span> versión(es) de estrategia con EVIDENCIA INSUFICIENTE — ver{" "}
+              <Link href="/luck-vs-edge" className="text-accent underline">Suerte vs Ventaja</Link>.
             </li>
             <li>
-              <span className="font-semibold text-danger">{failingStrategies.length}</span> strategy version(s) currently net-negative in paper trading.
+              <span className="font-semibold text-danger">{failingStrategies.length}</span> versión(es) de estrategia actualmente en negativo en paper trading.
             </li>
             <li>
-              Data quality across sampled assets: <span className="font-semibold text-slate-100">{avgDataQuality}/100</span>.
+              Calidad de datos en los activos muestreados: <span className="font-semibold text-slate-100">{avgDataQuality}/100</span>.
             </li>
           </ul>
           <Link href="/league" className="mt-3 inline-block text-xs text-accent underline">
-            Strategy League →
+            Liga de Estrategias →
           </Link>
         </Card>
 
-        <Card title="AI Usage Today" className="lg:col-span-1">
+        <Card title="Uso de IA Hoy" className="lg:col-span-1">
           <div className="grid grid-cols-2 gap-3">
-            <StatTile label="Calls Today" value={`${budget.callsToday}/${budget.dailyBudget}`} />
-            <StatTile label="Budget Left" value={`${budget.budgetRemainingPct.toFixed(0)}%`} />
-            <StatTile label="Est. Cost (mo)" value={`$${budget.monthlyCostUsd.toFixed(2)}`} />
-            <StatTile label="Cache Hit Rate" value={`${(budget.cacheHitRate * 100).toFixed(0)}%`} />
+            <StatTile label="Llamadas Hoy" value={`${budget.callsToday}/${budget.dailyBudget}`} />
+            <StatTile label="Presupuesto Restante" value={`${budget.budgetRemainingPct.toFixed(0)}%`} />
+            <StatTile label="Coste Est. (mes)" value={`$${budget.monthlyCostUsd.toFixed(2)}`} />
+            <StatTile label="Tasa de Acierto de Caché" value={`${(budget.cacheHitRate * 100).toFixed(0)}%`} />
           </div>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card title="Open Paper Positions" subtitle={`${openPositions.length} open`}>
+        <Card title="Posiciones Simuladas Abiertas" subtitle={`${openPositions.length} abierta(s)`}>
           {openPositions.length === 0 ? (
-            <p className="text-sm text-muted">No open positions.</p>
+            <p className="text-sm text-muted">No hay posiciones abiertas.</p>
           ) : (
             <div className="flex flex-col gap-2">
               {openPositions.map((p) => (
                 <div key={p.id} className="flex items-center justify-between rounded border border-bg-border bg-black/20 px-3 py-2 text-sm">
                   <div>
                     <span className="font-semibold">{p.asset.symbol}</span>{" "}
-                    <Badge tone={p.direction === "LONG" ? "success" : "danger"}>{p.direction}</Badge>
+                    <Badge tone={p.direction === "LONG" ? "success" : "danger"}>{tDirection(p.direction)}</Badge>
                   </div>
-                  <div className="font-mono text-xs text-muted">entry {p.entryPrice.toFixed(2)}</div>
+                  <div className="font-mono text-xs text-muted">entrada {p.entryPrice.toFixed(2)}</div>
                 </div>
               ))}
             </div>
           )}
           <Link href="/paper-trading" className="mt-3 inline-block text-xs text-accent underline">
-            Go to Paper Trading →
+            Ir a Paper Trading →
           </Link>
         </Card>
 
-        <Card title="Recent Alerts">
+        <Card title="Alertas Recientes">
           {alerts.length === 0 ? (
-            <p className="text-sm text-muted">No alerts yet.</p>
+            <p className="text-sm text-muted">Aún no hay alertas.</p>
           ) : (
             <div className="flex flex-col gap-2">
               {alerts.map((a) => (
                 <div key={a.id} className="flex items-start gap-2 text-xs">
-                  <Badge tone={verdictTone(a.severity)}>{a.severity}</Badge>
+                  <Badge tone={verdictTone(a.severity)}>{tSeverity(a.severity)}</Badge>
                   <div>
                     <div className="font-medium text-slate-200">{a.title}</div>
                     <div className="text-muted">{a.message}</div>
@@ -184,31 +185,31 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-      <Card title="Recent Trades">
+      <Card title="Operaciones Recientes">
         {recentTrades.length === 0 ? (
-          <p className="text-sm text-muted">No closed trades yet. Run a Paper Trading scan to generate activity.</p>
+          <p className="text-sm text-muted">Aún no hay operaciones cerradas. Ejecuta un escaneo en Paper Trading para generar actividad.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="text-muted">
                 <tr>
-                  <th className="py-1 pr-3">Asset</th>
+                  <th className="py-1 pr-3">Activo</th>
                   <th className="py-1 pr-3">Dir</th>
-                  <th className="py-1 pr-3">Entry</th>
-                  <th className="py-1 pr-3">Exit</th>
-                  <th className="py-1 pr-3">Net P&L</th>
-                  <th className="py-1 pr-3">Reason</th>
+                  <th className="py-1 pr-3">Entrada</th>
+                  <th className="py-1 pr-3">Salida</th>
+                  <th className="py-1 pr-3">P&L Neto</th>
+                  <th className="py-1 pr-3">Motivo</th>
                 </tr>
               </thead>
               <tbody>
                 {recentTrades.map((t) => (
                   <tr key={t.id} className="border-t border-bg-border">
                     <td className="py-1.5 pr-3 font-medium">{t.asset.symbol}</td>
-                    <td className="py-1.5 pr-3">{t.direction}</td>
+                    <td className="py-1.5 pr-3">{tDirection(t.direction)}</td>
                     <td className="py-1.5 pr-3 font-mono">{t.entryPrice.toFixed(2)}</td>
                     <td className="py-1.5 pr-3 font-mono">{t.exitPrice.toFixed(2)}</td>
                     <td className={`py-1.5 pr-3 font-mono ${t.netPnl >= 0 ? "text-accent" : "text-danger"}`}>{t.netPnl.toFixed(2)}</td>
-                    <td className="py-1.5 pr-3 text-muted">{t.exitReason}</td>
+                    <td className="py-1.5 pr-3 text-muted">{tExitReason(t.exitReason)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -216,7 +217,7 @@ export default async function DashboardPage() {
           </div>
         )}
         <Link href="/journal" className="mt-3 inline-block text-xs text-accent underline">
-          Full Trade Journal →
+          Ver Diario de Operaciones completo →
         </Link>
       </Card>
     </div>

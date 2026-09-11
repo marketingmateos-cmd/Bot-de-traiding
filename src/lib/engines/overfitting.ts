@@ -25,12 +25,12 @@ export function detectOverfitting(
 
   const paramCount = Object.keys(params).length;
   if (paramCount > 6) {
-    flags.push(`Strategy has ${paramCount} free parameters — more degrees of freedom means more ways to fit noise.`);
+    flags.push(`La estrategia tiene ${paramCount} parámetros libres — más grados de libertad significa más formas de ajustarse al ruido.`);
     score += 15;
   }
 
   if (baseMetrics.trades < 30) {
-    flags.push(`Only ${baseMetrics.trades} trades in the base backtest — too few to distinguish edge from noise.`);
+    flags.push(`Solo ${baseMetrics.trades} operaciones en el backtest base — demasiado pocas para distinguir ventaja de ruido.`);
     score += 25;
   }
 
@@ -38,7 +38,7 @@ export function detectOverfitting(
     const degradedWindows = walkForward.windows.filter((w) => w.degraded).length;
     const degradedShare = degradedWindows / walkForward.windows.length;
     if (degradedShare > 0.5) {
-      flags.push(`${Math.round(degradedShare * 100)}% of walk-forward windows show out-of-sample performance collapsing versus in-sample.`);
+      flags.push(`El ${Math.round(degradedShare * 100)}% de las ventanas walk-forward muestran un rendimiento fuera de muestra que se desploma frente al de dentro de muestra.`);
       score += 30;
     }
     const trainReturns = walkForward.windows.map((w) => w.trainMetrics.totalReturnPct);
@@ -46,16 +46,16 @@ export function detectOverfitting(
     const avgTrain = trainReturns.reduce((a, b) => a + b, 0) / trainReturns.length;
     const avgOos = oosReturns.reduce((a, b) => a + b, 0) / oosReturns.length;
     if (avgTrain > 0 && avgOos < avgTrain * 0.4) {
-      flags.push(`Average OOS return (${avgOos.toFixed(1)}%) is far below average in-sample return (${avgTrain.toFixed(1)}%).`);
+      flags.push(`El retorno medio fuera de muestra (${avgOos.toFixed(1)}%) está muy por debajo del retorno medio dentro de muestra (${avgTrain.toFixed(1)}%).`);
       score += 20;
     }
   } else {
-    flags.push("No walk-forward data exists yet — overfitting cannot be ruled out.");
+    flags.push("Todavía no existen datos de walk-forward — no se puede descartar el sobreajuste.");
     score += 10;
   }
 
   if (baseMetrics.profitFactor !== null && baseMetrics.profitFactor > 5) {
-    flags.push(`Profit factor of ${baseMetrics.profitFactor.toFixed(1)} is unusually high — verify this isn't driven by one or two outlier trades.`);
+    flags.push(`Un profit factor de ${baseMetrics.profitFactor.toFixed(1)} es inusualmente alto — verifica que no esté impulsado por una o dos operaciones atípicas.`);
     score += 10;
   }
 

@@ -1,18 +1,45 @@
 # Crypto AI Trading Lab
 
-A rigorous, self-skeptical research & **paper-trading** laboratory for crypto markets.
+A rigorous, self-skeptical research & **paper-trading** laboratory for crypto markets. The UI is
+in Spanish; this document is in English for maintainers.
 
 **This system never sends real orders.** Every position, every fill, every P&L number in this
 app is simulated. The point of the lab is not "a bot that makes money" — it's a set of tools
 that make it hard to fool yourself into thinking a strategy has an edge when it doesn't.
 
-## Running it
+## Puesta en marcha rápida (en español)
+
+Necesitas Node.js 20+ y una base de datos PostgreSQL accesible (local o en la nube — por ejemplo
+un plan gratuito de [Neon](https://neon.tech) o [Supabase](https://supabase.com) si tu entorno no
+trae Postgres instalado). Después:
+
+```bash
+npm install
+npm run setup   # crea .env, intenta arrancar Postgres local, crea la BD, aplica el esquema y siembra datos de ejemplo
+npm run dev     # arranca en el puerto 3000
+```
+
+Abre la URL que te indique tu entorno (en local: http://localhost:3000; en Codespaces/Gitpod/etc.,
+la URL del puerto 3000 reenviado — suele aparecer en una pestaña "Ports" o en la barra de
+direcciones al iniciar `npm run dev`). Si `npm run setup` no logra crear la base de datos
+automáticamente (por ejemplo porque tu entorno no tiene Postgres instalado), edita `.env` y pon en
+`DATABASE_URL` la cadena de conexión de una base de datos Postgres gratuita en la nube, luego
+vuelve a ejecutar `npm run setup`.
+
+**¿Cómo lo veo en el móvil?** La app es una PWA instalable. Si la ejecutas en un entorno con URL
+pública (Codespaces, Gitpod, un despliegue en Vercel/Railway/etc.), abre esa misma URL desde el
+navegador de tu móvil y usa "Añadir a pantalla de inicio" (Chrome/Android) o "Compartir → Añadir a
+pantalla de inicio" (Safari/iOS) para que se comporte como una app nativa. Si solo la ejecutas en
+`localhost` de tu ordenador, tu móvil no podrá acceder a menos que ambos estén en la misma red y
+uses la IP local del ordenador, o que despliegues la app en un servicio como Vercel para tener una
+URL pública permanente.
+
+## Running it (English)
 
 ```bash
 cp .env.example .env        # already done in this repo; edit if you have real DATABASE_URL/keys
 npm install
-npm run db:push             # create tables in PostgreSQL (DATABASE_URL in .env)
-npm run db:seed             # seed 7 assets, 7 strategies, one €100 paper account
+npm run setup                # or: npm run db:push && npm run db:seed
 npm run dev                 # http://localhost:3000
 ```
 

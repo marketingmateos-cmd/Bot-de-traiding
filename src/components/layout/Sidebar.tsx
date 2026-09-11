@@ -14,7 +14,7 @@ export function Sidebar() {
         <div className="flex h-7 w-7 items-center justify-center rounded bg-accent/15 font-mono text-sm font-bold text-accent">λ</div>
         <div>
           <div className="text-sm font-semibold text-slate-100">Crypto AI Trading Lab</div>
-          <div className="text-[10px] uppercase tracking-wide text-muted">Paper Trading Only</div>
+          <div className="text-[10px] uppercase tracking-wide text-muted">Solo Paper Trading</div>
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto px-2 py-3">
@@ -42,7 +42,7 @@ export function Sidebar() {
         ))}
       </nav>
       <div className="border-t border-bg-border px-4 py-3 text-[10px] text-muted">
-        DEMO MODE — all data synthetic, all trades simulated.
+        MODO DEMO — todos los datos son sintéticos, todas las operaciones son simuladas.
       </div>
     </aside>
   );

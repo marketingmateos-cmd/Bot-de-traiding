@@ -22,7 +22,7 @@ export const meanReversionStrategy: StrategyDefinition = {
         kind: "MEAN_REVERSION",
         direction: "LONG",
         strength: Math.min(1, (rsiExtreme - features.rsi14) / rsiExtreme + 0.3),
-        reason: `Price ${price.toFixed(2)} at/below lower Bollinger band with oversold RSI ${features.rsi14.toFixed(1)}.`,
+        reason: `El precio ${price.toFixed(2)} está en/por debajo de la banda inferior de Bollinger con RSI de sobreventa ${features.rsi14.toFixed(1)}.`,
       };
     }
     if (price >= features.bbUpper && features.rsi14 >= 100 - rsiExtreme) {
@@ -30,7 +30,7 @@ export const meanReversionStrategy: StrategyDefinition = {
         kind: "MEAN_REVERSION",
         direction: "SHORT",
         strength: Math.min(1, (features.rsi14 - (100 - rsiExtreme)) / rsiExtreme + 0.3),
-        reason: `Price ${price.toFixed(2)} at/above upper Bollinger band with overbought RSI ${features.rsi14.toFixed(1)}.`,
+        reason: `El precio ${price.toFixed(2)} está en/por encima de la banda superior de Bollinger con RSI de sobrecompra ${features.rsi14.toFixed(1)}.`,
       };
     }
     return null;

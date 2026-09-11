@@ -3,6 +3,7 @@ import { SUPPORTED_ASSETS } from "@/lib/env";
 import { Card } from "@/components/ui/Card";
 import { Badge, regimeTone } from "@/components/ui/Badge";
 import { Sparkline } from "@/components/charts/Sparkline";
+import { tRegime } from "@/lib/i18n";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +14,8 @@ export default async function MarketsPage() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <h1 className="text-lg font-semibold text-slate-100">Markets</h1>
-        <p className="mt-1 text-sm text-muted">Live (demo) OHLCV, indicators, regime, and data quality for every tracked asset.</p>
+        <h1 className="text-lg font-semibold text-slate-100">Mercados</h1>
+        <p className="mt-1 text-sm text-muted">Datos OHLCV (demo), indicadores, régimen y calidad de datos de cada activo monitorizado.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -35,17 +36,17 @@ export default async function MarketsPage() {
               </div>
               <Sparkline data={closes} positive={positive} />
               <div className="flex flex-wrap gap-1.5">
-                <Badge tone={regimeTone(a.regime.regime)}>{a.regime.regime}</Badge>
+                <Badge tone={regimeTone(a.regime.regime)}>{tRegime(a.regime.regime)}</Badge>
                 <Badge tone={a.dataQuality.score >= 70 ? "success" : a.dataQuality.score >= 55 ? "warn" : "danger"}>
-                  Quality {a.dataQuality.score}
+                  Calidad {a.dataQuality.score}
                 </Badge>
-                {a.marketIntelligence && <Badge tone="info">MI {a.marketIntelligence.score}</Badge>}
+                {a.marketIntelligence && <Badge tone="info">IM {a.marketIntelligence.score}</Badge>}
               </div>
               {a.dataQuality.blocksTrading && (
-                <div className="rounded border border-danger/30 bg-danger/10 px-2 py-1 text-[11px] text-danger">BLOCKED — DATA QUALITY</div>
+                <div className="rounded border border-danger/30 bg-danger/10 px-2 py-1 text-[11px] text-danger">BLOQUEADO — CALIDAD DE DATOS</div>
               )}
               <Link href={`/intelligence?symbol=${a.symbol}`} className="text-xs text-accent underline">
-                Full intelligence breakdown →
+                Ver desglose completo →
               </Link>
             </Card>
           );

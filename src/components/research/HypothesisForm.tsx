@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Badge, verdictTone } from "@/components/ui/Badge";
 import { STRATEGY_OPTIONS, ASSET_OPTIONS } from "@/components/backtesting/options";
+import { tEvidenceLevel, tVerdict } from "@/lib/i18n";
 
 export function HypothesisForm() {
   const router = useRouter();
-  const [statement, setStatement] = useState("Momentum works better when volume is above its recent average.");
+  const [statement, setStatement] = useState("El momentum funciona mejor cuando el volumen está por encima de su media reciente.");
   const [strategyDefId, setStrategyDefId] = useState(STRATEGY_OPTIONS[1].id);
   const [symbol, setSymbol] = useState(ASSET_OPTIONS[0]);
   const [loading, setLoading] = useState(false);
@@ -30,7 +31,7 @@ export function HypothesisForm() {
   }
 
   return (
-    <Card title="Test a Hypothesis" subtitle="Hypothesis → Backtest → Walk-Forward → Robustness → Accept/Reject, run as one pipeline.">
+    <Card title="Probar una Hipótesis" subtitle="Hipótesis → Backtest → Walk-Forward → Robustez → Aceptar/Rechazar, ejecutado como un único proceso.">
       <div className="flex flex-col gap-3">
         <textarea
           value={statement}
@@ -50,13 +51,13 @@ export function HypothesisForm() {
             ))}
           </select>
           <button onClick={submit} disabled={loading} className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50">
-            {loading ? "Testing…" : "Test Hypothesis"}
+            {loading ? "Probando…" : "Probar Hipótesis"}
           </button>
         </div>
         {result?.hypothesis && (
           <div className="rounded border border-bg-border bg-black/20 p-3 text-xs">
-            <Badge tone={verdictTone(result.hypothesis.status)}>{result.hypothesis.status}</Badge>{" "}
-            <Badge tone="muted">{result.hypothesis.evidenceLevel} evidence</Badge>
+            <Badge tone={verdictTone(result.hypothesis.status)}>{tVerdict(result.hypothesis.status)}</Badge>{" "}
+            <Badge tone="muted">evidencia {tEvidenceLevel(result.hypothesis.evidenceLevel)}</Badge>
             <p className="mt-2 text-muted">{result.hypothesis.rationale}</p>
           </div>
         )}

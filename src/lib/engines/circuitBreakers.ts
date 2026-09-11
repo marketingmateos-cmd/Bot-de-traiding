@@ -36,7 +36,7 @@ export const BREAKERS: BreakerDefinition[] = [
     kind: "MAX_DAILY_LOSS",
     evaluate: (ctx) =>
       ctx.dailyPnlPct <= -MAX_DAILY_LOSS_PCT
-        ? { tripped: true, reason: `Daily P&L ${ctx.dailyPnlPct.toFixed(2)}% breached -${MAX_DAILY_LOSS_PCT}% limit.` }
+        ? { tripped: true, reason: `El P&L diario (${ctx.dailyPnlPct.toFixed(2)}%) superó el límite de -${MAX_DAILY_LOSS_PCT}%.` }
         : { tripped: false },
   },
   {
@@ -44,7 +44,7 @@ export const BREAKERS: BreakerDefinition[] = [
     kind: "MAX_DRAWDOWN",
     evaluate: (ctx) =>
       ctx.currentDrawdownPct >= MAX_DRAWDOWN_PCT
-        ? { tripped: true, reason: `Drawdown ${ctx.currentDrawdownPct.toFixed(2)}% breached ${MAX_DRAWDOWN_PCT}% limit.` }
+        ? { tripped: true, reason: `El drawdown (${ctx.currentDrawdownPct.toFixed(2)}%) superó el límite del ${MAX_DRAWDOWN_PCT}%.` }
         : { tripped: false },
   },
   {
@@ -52,7 +52,7 @@ export const BREAKERS: BreakerDefinition[] = [
     kind: "MAX_TRADES",
     evaluate: (ctx) =>
       ctx.tradesToday >= MAX_TRADES_PER_DAY
-        ? { tripped: true, reason: `${ctx.tradesToday} trades today reached the ${MAX_TRADES_PER_DAY} daily cap.` }
+        ? { tripped: true, reason: `${ctx.tradesToday} operaciones hoy alcanzaron el límite diario de ${MAX_TRADES_PER_DAY}.` }
         : { tripped: false },
   },
   {
@@ -60,19 +60,19 @@ export const BREAKERS: BreakerDefinition[] = [
     kind: "DATA_CORRUPTION",
     evaluate: (ctx) =>
       ctx.dataQualityScore < MIN_DATA_QUALITY
-        ? { tripped: true, reason: `Data quality score ${ctx.dataQualityScore} below minimum ${MIN_DATA_QUALITY}.` }
+        ? { tripped: true, reason: `La puntuación de calidad de datos (${ctx.dataQualityScore}) está por debajo del mínimo ${MIN_DATA_QUALITY}.` }
         : { tripped: false },
   },
   {
     name: "api-down",
     kind: "API_DOWN",
-    evaluate: (ctx) => (!ctx.apiHealthy ? { tripped: true, reason: "One or more required data sources are unhealthy." } : { tripped: false }),
+    evaluate: (ctx) => (!ctx.apiHealthy ? { tripped: true, reason: "Una o más fuentes de datos necesarias no están funcionando correctamente." } : { tripped: false }),
   },
   {
     name: "position-inconsistency",
     kind: "POSITION_INCONSISTENCY",
     evaluate: (ctx) =>
-      !ctx.positionsConsistent ? { tripped: true, reason: "Position state reconciliation found inconsistencies." } : { tripped: false },
+      !ctx.positionsConsistent ? { tripped: true, reason: "La reconciliación del estado de posiciones encontró inconsistencias." } : { tripped: false },
   },
 ];
 
@@ -100,8 +100,8 @@ export async function evaluateCircuitBreakers(ctx: CircuitBreakerCheckContext) {
       await createSystemAlert({
         kind: "CIRCUIT_BREAKER",
         severity: "CRITICAL",
-        title: `Circuit breaker tripped: ${breaker.name}`,
-        message: result.reason ?? "Threshold breached.",
+        title: `Cortafuegos activado: ${breaker.name}`,
+        message: result.reason ?? "Se superó el umbral.",
       });
       await logAudit({ action: "CIRCUIT_BREAKER_TRIPPED", entity: "CircuitBreaker", entityId: breaker.name, data: result });
     } else if (!result.tripped && existing?.isTripped) {

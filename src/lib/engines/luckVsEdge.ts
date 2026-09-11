@@ -28,27 +28,27 @@ export function assessEvidence(
   const warnings: string[] = [];
 
   if (stats.trades < MIN_TRADES_MEDIUM) {
-    warnings.push(`Only ${stats.trades} trade(s) recorded — far too small a sample to draw conclusions (need ${MIN_TRADES_MEDIUM}+ for even moderate confidence).`);
+    warnings.push(`Solo ${stats.trades} operación(es) registrada(s) — muestra demasiado pequeña para sacar conclusiones (se necesitan ${MIN_TRADES_MEDIUM}+ para una confianza moderada).`);
   }
   if (stats.winRate > 0.7 && stats.trades < 50) {
-    warnings.push(`A ${(stats.winRate * 100).toFixed(0)}% win rate on ${stats.trades} trades is more consistent with a lucky streak than a durable edge.`);
+    warnings.push(`Una tasa de acierto del ${(stats.winRate * 100).toFixed(0)}% en ${stats.trades} operaciones es más propia de una racha de suerte que de una ventaja duradera.`);
   }
   if (stats.maxDrawdownPct > 25) {
-    warnings.push(`Max drawdown of ${stats.maxDrawdownPct.toFixed(1)}% is severe; headline returns can hide unacceptable risk of ruin.`);
+    warnings.push(`El drawdown máximo del ${stats.maxDrawdownPct.toFixed(1)}% es severo; un retorno llamativo puede ocultar un riesgo de ruina inaceptable.`);
   }
   if (stats.sharpe !== null && stats.sharpe < 0.5) {
-    warnings.push(`Sharpe ratio (${stats.sharpe.toFixed(2)}) is weak even if total return looks positive.`);
+    warnings.push(`El ratio de Sharpe (${stats.sharpe.toFixed(2)}) es débil aunque el retorno total parezca positivo.`);
   }
   if (options?.benchmarkBeat === false) {
-    warnings.push("Strategy underperforms simple Buy & Hold over the same period.");
+    warnings.push("La estrategia rinde peor que un simple Buy & Hold en el mismo periodo.");
   }
   if (options?.oosMetrics === undefined || options?.oosMetrics === null) {
-    warnings.push("No out-of-sample results exist yet for this strategy version.");
+    warnings.push("Todavía no existen resultados fuera de muestra (out-of-sample) para esta versión de estrategia.");
   } else if ((options.oosMetrics.sharpe ?? -1) < 0) {
-    warnings.push("Out-of-sample Sharpe ratio is negative — in-sample performance did not generalize.");
+    warnings.push("El ratio de Sharpe fuera de muestra es negativo — el rendimiento dentro de muestra no se generalizó.");
   }
   if (options?.robustnessScore !== undefined && options?.robustnessScore !== null && options.robustnessScore < 50) {
-    warnings.push(`Robustness score (${options.robustnessScore}/100) is below the threshold considered reliable.`);
+    warnings.push(`La puntuación de robustez (${options.robustnessScore}/100) está por debajo del umbral considerado fiable.`);
   }
 
   const sampleSizeOk = stats.trades >= MIN_TRADES_MEDIUM;

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { STRATEGY_OPTIONS, ASSET_OPTIONS } from "./options";
+import { tEvidenceLevel } from "@/lib/i18n";
 
 export function RobustnessRunner() {
   const [strategyDefId, setStrategyDefId] = useState(STRATEGY_OPTIONS[0].id);
@@ -29,7 +30,7 @@ export function RobustnessRunner() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Card title="Run Robustness Suite" subtitle="Combines walk-forward, parameter perturbation, cross-asset generalization, and cost sensitivity into one score. Takes a while — runs several backtests.">
+      <Card title="Ejecutar Suite de Robustez" subtitle="Combina walk-forward, perturbación de parámetros, generalización entre activos y sensibilidad a costes en una sola puntuación. Tarda un rato — ejecuta varios backtests.">
         <div className="flex flex-wrap items-center gap-2">
           <select value={strategyDefId} onChange={(e) => setStrategyDefId(e.target.value)} className="rounded border border-bg-border bg-black/20 px-2 py-1.5 text-xs">
             {STRATEGY_OPTIONS.map((s) => (
@@ -42,14 +43,14 @@ export function RobustnessRunner() {
             ))}
           </select>
           <button onClick={run} disabled={loading} className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50">
-            {loading ? "Running full suite…" : "Run Robustness Suite"}
+            {loading ? "Ejecutando suite completa…" : "Ejecutar Suite de Robustez"}
           </button>
         </div>
       </Card>
 
       {data && (
         <>
-          <Card title="Robustness Score">
+          <Card title="Puntuación de Robustez">
             <div className="mb-3 font-mono text-4xl font-bold text-accent">
               {data.robustness.score}
               <span className="text-base text-muted">/100</span>
@@ -70,9 +71,9 @@ export function RobustnessRunner() {
             </div>
           </Card>
 
-          <Card title="Overfitting Detector">
+          <Card title="Detector de Sobreajuste">
             <Badge tone={data.overfitting.risk === "HIGH" ? "danger" : data.overfitting.risk === "MEDIUM" ? "warn" : "success"}>
-              OVERFITTING RISK: {data.overfitting.risk}
+              RIESGO DE SOBREAJUSTE: {tEvidenceLevel(data.overfitting.risk)}
             </Badge>
             <ul className="mt-2 flex flex-col gap-1 text-xs text-muted">
               {data.overfitting.flags.map((f, i) => (
@@ -81,7 +82,7 @@ export function RobustnessRunner() {
             </ul>
           </Card>
 
-          <Card title="Cross-Asset Returns">
+          <Card title="Retornos entre Activos">
             <div className="flex flex-wrap gap-3 font-mono text-xs">
               {data.crossAssetReturns.map((r, i) => (
                 <span key={i} className={r >= 0 ? "text-accent" : "text-danger"}>
