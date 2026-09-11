@@ -1,0 +1,605 @@
+// Crypto AI Trading Lab — Database Schema
+// PostgreSQL + Prisma. Every table that backs a simulated trade carries enough
+// context to reconstruct *why* the system did what it did (see: Reproducibility
+// Principle in the product spec).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// CORE / IDENTITY
+// ─────────────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+
+  accounts     PaperAccount[]
+  strategies   Strategy[]
+  experiments  Experiment[]
+  auditLogs    AuditLog[]
+}
+
+model Asset {
+  id           String   @id @default(cuid())
+  symbol       String   @unique // e.g. "BTC"
+  name         String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  marketData      MarketData[]
+  news            NewsAssetLink[]
+  sentiment       SentimentSnapshot[]
+  onChainMetrics  OnChainMetric[]
+  paperPositions  PaperPosition[]
+  paperOrders     PaperOrder[]
+  trades          Trade[]
+  backtestResults BacktestResult[]
+  benchmarks      Benchmark[]
+
+  @@index([symbol])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MARKET DATA
+// ─────────────────────────────────────────────────────────────────────────
+
+enum Timeframe {
+  M1
+  M5
+  M15
+  H1
+  H4
+  D1
+}
+
+model MarketData {
+  id         String    @id @default(cuid())
+  assetId    String
+  asset      Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  timeframe  Timeframe
+  timestamp  DateTime
+  open       Float
+  high       Float
+  low        Float
+  close      Float
+  volume     Float
+  source     String // provider id, e.g. "demo", "coingecko"
+  quality    Int       @default(100) // 0-100, from Data Quality Engine
+  isDemo     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  @@unique([assetId, timeframe, timestamp, source])
+  @@index([assetId, timeframe, timestamp])
+}
+
+model DataQualityReport {
+  id           String   @id @default(cuid())
+  assetId      String?
+  timeframe    Timeframe?
+  score        Int // 0-100
+  issues       Json // array of {type, severity, message}
+  evaluatedAt  DateTime @default(now())
+
+  @@index([assetId, timeframe, evaluatedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// NEWS
+// ─────────────────────────────────────────────────────────────────────────
+
+enum NewsCategory {
+  MACRO
+  REGULATION
+  EXCHANGE
+  PROTOCOL
+  ETF
+  SECURITY
+  ADOPTION
+  PARTNERSHIP
+  TECHNOLOGY
+  MARKET
+  OTHER
+}
+
+model News {
+  id            String       @id @default(cuid())
+  title         String
+  source        String
+  url           String?
+  publishedAt   DateTime
+  category      NewsCategory
+  importance    Int // 0-100
+  novelty       Int // 0-100, dedup clusters score lower
+  sentiment     Float // -1..1
+  intensity     Int // 0-100
+  entities      Json // string[]
+  clusterId     String? // groups near-duplicate articles
+  impactScore   Int // 0-100, computed
+  isDemo        Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+
+  assets NewsAssetLink[]
+
+  @@index([publishedAt])
+  @@index([clusterId])
+}
+
+model NewsAssetLink {
+  id      String @id @default(cuid())
+  newsId  String
+  news    News   @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  assetId String
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([newsId, assetId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SENTIMENT
+// ─────────────────────────────────────────────────────────────────────────
+
+model SentimentSnapshot {
+  id             String   @id @default(cuid())
+  assetId        String
+  asset          Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  timestamp      DateTime
+  score          Float // -1..1
+  trend          Float // slope over recent window
+  acceleration    Float // 2nd derivative
+  priceChangePct  Float // paired price change for divergence calc
+  divergence      Boolean @default(false)
+  source          String
+  isDemo          Boolean  @default(true)
+
+  @@index([assetId, timestamp])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ON-CHAIN
+// ─────────────────────────────────────────────────────────────────────────
+
+model OnChainMetric {
+  id          String   @id @default(cuid())
+  assetId     String
+  asset       Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  timestamp   DateTime
+  metric      String // e.g. "exchange_inflow", "active_addresses"
+  value       Float?
+  available   Boolean  @default(false) // false => DATA UNAVAILABLE, value must be null
+  source      String
+  isDemo      Boolean  @default(true)
+
+  @@index([assetId, metric, timestamp])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// STRATEGIES
+// ─────────────────────────────────────────────────────────────────────────
+
+enum StrategyKind {
+  TREND_FOLLOWING
+  MOMENTUM
+  BREAKOUT
+  MEAN_REVERSION
+  VOLATILITY
+  MULTI_TIMEFRAME
+  EVENT_DRIVEN
+}
+
+enum MarketRegime {
+  STRONG_BULL
+  BULL
+  NEUTRAL
+  BEAR
+  STRONG_BEAR
+  HIGH_VOLATILITY
+  LOW_VOLATILITY
+  RANGE
+  TRANSITION
+}
+
+model Strategy {
+  id          String       @id @default(cuid())
+  ownerId     String?
+  owner       User?        @relation(fields: [ownerId], references: [id])
+  kind        StrategyKind
+  name        String
+  description String?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+
+  versions StrategyVersion[]
+
+  @@index([kind])
+}
+
+model StrategyVersion {
+  id                 String        @id @default(cuid())
+  strategyId         String
+  strategy           Strategy      @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  version            String // "1.0", "1.1", "2.0"
+  parameters         Json
+  timeframe          Timeframe
+  allowedMarkets     Json // string[] asset symbols, [] = all
+  recommendedRegimes Json // MarketRegime[]
+  entryRules         Json
+  exitRules          Json
+  stopLossPct        Float?
+  takeProfitPct      Float?
+  trailingStopPct    Float?
+  filters            Json
+  costModel          Json // { feeBps, slippageBps }
+  changeLog          String?
+  createdAt          DateTime      @default(now())
+  parentVersionId    String?
+
+  backtests       Backtest[]
+  paperOrders     PaperOrder[]
+  paperPositions  PaperPosition[]
+  trades          Trade[]
+  hypotheses      Hypothesis[]
+
+  @@unique([strategyId, version])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// BACKTESTING / RESEARCH
+// ─────────────────────────────────────────────────────────────────────────
+
+enum BacktestKind {
+  SIMPLE
+  WALK_FORWARD
+  MONTE_CARLO
+  ROBUSTNESS
+}
+
+model Backtest {
+  id                String       @id @default(cuid())
+  strategyVersionId String
+  strategyVersion   StrategyVersion @relation(fields: [strategyVersionId], references: [id], onDelete: Cascade)
+  kind              BacktestKind
+  assetSymbols      Json
+  timeframe         Timeframe
+  startDate         DateTime
+  endDate           DateTime
+  costModel         Json
+  status            String       @default("PENDING") // PENDING, RUNNING, DONE, FAILED
+  summary           Json? // headline metrics
+  createdAt         DateTime     @default(now())
+  completedAt       DateTime?
+
+  results BacktestResult[]
+
+  @@index([strategyVersionId])
+}
+
+model BacktestResult {
+  id           String   @id @default(cuid())
+  backtestId   String
+  backtest     Backtest @relation(fields: [backtestId], references: [id], onDelete: Cascade)
+  assetId      String
+  asset        Asset    @relation(fields: [assetId], references: [id])
+  windowLabel  String? // e.g. "train", "oos", "wf-3", "mc-run-42"
+  metrics      Json // return, sharpe, sortino, maxDD, winRate, trades, etc.
+  equityCurve  Json // [{t, equity}]
+  trades       Json // lightweight trade list for this run
+  createdAt    DateTime @default(now())
+
+  @@index([backtestId, assetId])
+}
+
+model Benchmark {
+  id          String   @id @default(cuid())
+  assetId     String
+  asset       Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  kind        String   @default("BUY_AND_HOLD")
+  startDate   DateTime
+  endDate     DateTime
+  metrics     Json
+  createdAt   DateTime @default(now())
+
+  @@index([assetId, startDate, endDate])
+}
+
+model Hypothesis {
+  id                String   @id @default(cuid())
+  statement         String
+  strategyVersionId String?
+  strategyVersion   StrategyVersion? @relation(fields: [strategyVersionId], references: [id])
+  status            String   @default("PROPOSED") // PROPOSED, TESTING, ACCEPTED, REJECTED, INSUFFICIENT_EVIDENCE
+  evidenceLevel     String? // LOW, MEDIUM, HIGH
+  rationale         String?
+  experimentId      String?  @unique
+  experiment        Experiment? @relation(fields: [experimentId], references: [id])
+  createdAt         DateTime @default(now())
+  resolvedAt        DateTime?
+}
+
+model Experiment {
+  id            String   @id @default(cuid())
+  ownerId       String?
+  owner         User?    @relation(fields: [ownerId], references: [id])
+  name          String
+  durationDays  Int
+  config        Json
+  status        String   @default("PENDING")
+  result        Json?
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+
+  hypothesis Hypothesis?
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// PAPER TRADING
+// ─────────────────────────────────────────────────────────────────────────
+
+enum Direction {
+  LONG
+  SHORT
+}
+
+enum PositionStatus {
+  FLAT
+  PENDING
+  OPEN
+  PARTIALLY_CLOSED
+  CLOSED
+  ERROR
+}
+
+model PaperAccount {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String   @default("Main Paper Account")
+  baseCurrency   String   @default("EUR")
+  startingBalance Float   @default(100)
+  cashBalance    Float    @default(100)
+  riskProfile    String   @default("BALANCED") // CONSERVATIVE, BALANCED, AGGRESSIVE, CUSTOM
+  isTradingBlocked Boolean @default(false)
+  blockedReason  String?
+  createdAt      DateTime @default(now())
+
+  orders     PaperOrder[]
+  positions  PaperPosition[]
+  trades     Trade[]
+
+  @@index([userId])
+}
+
+model PaperOrder {
+  id                String     @id @default(cuid())
+  accountId         String
+  account           PaperAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  assetId           String
+  asset             Asset      @relation(fields: [assetId], references: [id])
+  strategyVersionId String?
+  strategyVersion   StrategyVersion? @relation(fields: [strategyVersionId], references: [id])
+  direction         Direction
+  requestedPrice    Float
+  quantity          Float
+  status            String     @default("PENDING") // PENDING, FILLED, REJECTED, CANCELLED
+  gateResult        Json // full trade-gate audit trail
+  fillPrice         Float?
+  slippage          Float?
+  fee               Float?
+  createdAt         DateTime   @default(now())
+  filledAt          DateTime?
+
+  position PaperPosition?
+
+  @@index([accountId, status])
+}
+
+model PaperPosition {
+  id                String        @id @default(cuid())
+  accountId         String
+  account           PaperAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  assetId           String
+  asset             Asset         @relation(fields: [assetId], references: [id])
+  strategyVersionId String?
+  strategyVersion   StrategyVersion? @relation(fields: [strategyVersionId], references: [id])
+  openOrderId       String?       @unique
+  openOrder         PaperOrder?   @relation(fields: [openOrderId], references: [id])
+  direction         Direction
+  status            PositionStatus @default(FLAT)
+  entryPrice        Float
+  quantity          Float
+  remainingQuantity Float
+  stopLoss          Float?
+  takeProfit        Float?
+  trailingStopPct   Float?
+  openedAt          DateTime      @default(now())
+  closedAt          DateTime?
+  unrealizedPnl     Float         @default(0)
+  realizedPnl       Float         @default(0)
+  snapshot          Json // reproducibility snapshot: indicators, regime, news, sentiment, AI analysis at entry
+
+  trades       Trade[]
+  stateChanges PositionStateChange[]
+
+  @@index([accountId, status])
+}
+
+model PositionStateChange {
+  id           String        @id @default(cuid())
+  positionId   String
+  position     PaperPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  fromStatus   PositionStatus?
+  toStatus     PositionStatus
+  reason       String
+  source       String // "manual", "engine", "reconciliation"
+  createdAt    DateTime      @default(now())
+
+  @@index([positionId])
+}
+
+model Trade {
+  id                String     @id @default(cuid())
+  accountId         String
+  account           PaperAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  positionId        String
+  position          PaperPosition @relation(fields: [positionId], references: [id])
+  assetId           String
+  asset             Asset      @relation(fields: [assetId], references: [id])
+  strategyVersionId String?
+  strategyVersion   StrategyVersion? @relation(fields: [strategyVersionId], references: [id])
+  direction         Direction
+  entryPrice        Float
+  exitPrice         Float
+  quantity          Float
+  fees              Float      @default(0)
+  slippageCost      Float      @default(0)
+  grossPnl          Float
+  netPnl            Float
+  mae               Float // Max Adverse Excursion
+  mfe               Float // Max Favorable Excursion
+  durationSeconds   Int
+  exitReason         String // STOP_LOSS, TAKE_PROFIT, SIGNAL, MANUAL, RISK, CIRCUIT_BREAKER
+  marketRegime       MarketRegime?
+  journalId          String?    @unique
+  journal            TradeJournal?
+  openedAt           DateTime
+  closedAt           DateTime
+
+  @@index([accountId, closedAt])
+  @@index([strategyVersionId])
+}
+
+model TradeJournal {
+  id              String   @id @default(cuid())
+  tradeId         String   @unique
+  trade           Trade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  signalSnapshot  Json
+  indicators      Json
+  news            Json
+  sentiment       Json
+  onChain         Json
+  aiAnalysis      Json?
+  aiCritic        Json?
+  riskScore       Float?
+  postMortem      PostMortem?
+  createdAt       DateTime @default(now())
+}
+
+model PostMortem {
+  id             String   @id @default(cuid())
+  journalId      String   @unique
+  journal        TradeJournal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  classification String // GOOD_EXECUTION, BAD_EXECUTION, GOOD_IDEA_BAD_RESULT, BAD_IDEA_GOOD_RESULT, INSUFFICIENT_DATA, ANOMALY
+  hypothesisCorrect Boolean?
+  notes          String
+  createdAt      DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// RISK / SAFETY
+// ─────────────────────────────────────────────────────────────────────────
+
+model RiskEvent {
+  id          String   @id @default(cuid())
+  accountId   String?
+  kind        String // POSITION_SIZE, EXPOSURE, CORRELATION, DRAWDOWN, VOLATILITY
+  severity    String // INFO, WARN, CRITICAL
+  message     String
+  data        Json?
+  createdAt   DateTime @default(now())
+
+  @@index([accountId, createdAt])
+}
+
+model CircuitBreaker {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  kind        String // MAX_DAILY_LOSS, MAX_DRAWDOWN, MAX_TRADES, DATA_CORRUPTION, API_DOWN, POSITION_INCONSISTENCY, ANOMALY
+  threshold   Json
+  isTripped   Boolean  @default(false)
+  trippedAt   DateTime?
+  trippedReason String?
+  resetAt     DateTime?
+  updatedAt   DateTime @updatedAt
+}
+
+model SystemAlert {
+  id          String   @id @default(cuid())
+  kind        String
+  severity    String // INFO, WARN, CRITICAL
+  title       String
+  message     String
+  data        Json?
+  acknowledged Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AI
+// ─────────────────────────────────────────────────────────────────────────
+
+model AIAnalysis {
+  id             String   @id @default(cuid())
+  kind           String // ANALYST, CRITIC
+  assetId        String?
+  strategyVersionId String?
+  input          Json
+  output         Json
+  model          String
+  tokensIn       Int      @default(0)
+  tokensOut      Int      @default(0)
+  estimatedCost  Float    @default(0)
+  cached         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([kind, createdAt])
+}
+
+model AIUsage {
+  id             String   @id @default(cuid())
+  day            DateTime // truncated to day, UTC
+  callsCount     Int      @default(0)
+  tokensIn       Int      @default(0)
+  tokensOut      Int      @default(0)
+  estimatedCost  Float    @default(0)
+  cacheHits      Int      @default(0)
+  cacheMisses    Int      @default(0)
+
+  @@unique([day])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SYSTEM HEALTH / AUDIT
+// ─────────────────────────────────────────────────────────────────────────
+
+model SystemHealth {
+  id           String   @id @default(cuid())
+  score        Int // 0-100
+  components   Json // { dataQuality, apiHealth, positionConsistency, anomalyCount }
+  evaluatedAt  DateTime @default(now())
+
+  @@index([evaluatedAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
