@@ -36,21 +36,51 @@ describe("checkExposureLimits", () => {
   const limits = resolveRiskLimits("BALANCED");
 
   it("passes when projected exposure is within limits", () => {
-    const result = checkExposureLimits({ equity: 1000, openNotional: 0, newNotional: 100, limits, openPositionCount: 0 });
+    const result = checkExposureLimits({ equity: 1000, openNotional: 0, newNotional: 100, limits, openPositionCount: 0, assetOpenNotional: 0 });
     expect(result.passed).toBe(true);
     expect(result.violations).toHaveLength(0);
   });
 
   it("fails when projected exposure exceeds the profile's max", () => {
-    const result = checkExposureLimits({ equity: 1000, openNotional: 400, newNotional: 200, limits, openPositionCount: 0 });
+    const result = checkExposureLimits({ equity: 1000, openNotional: 400, newNotional: 200, limits, openPositionCount: 0, assetOpenNotional: 0 });
     // BALANCED maxExposurePct = 50 -> (400+200)/1000 = 60% > 50%
     expect(result.passed).toBe(false);
     expect(result.violations.length).toBeGreaterThan(0);
   });
 
   it("fails when opening would exceed max open positions even if exposure is fine", () => {
-    const result = checkExposureLimits({ equity: 100000, openNotional: 0, newNotional: 1, limits, openPositionCount: limits.maxOpenPositions });
+    const result = checkExposureLimits({ equity: 100000, openNotional: 0, newNotional: 1, limits, openPositionCount: limits.maxOpenPositions, assetOpenNotional: 0 });
     expect(result.passed).toBe(false);
+  });
+
+  it("fails when a single asset's combined notional (across all strategies) exceeds maxConcentrationPct, even if TOTAL exposure is fine (Fase 1.A4)", () => {
+    // BALANCED: maxExposurePct 50%, maxConcentrationPct 25%. Two different
+    // strategies have already put 20% each (40% total, well under 50%) into
+    // the SAME asset; a third candidate on that same asset would push that
+    // one asset's concentration to 50%, breaching the 25% per-asset cap,
+    // even though aggregate exposure (40%+10%=50%) would itself still pass.
+    const result = checkExposureLimits({
+      equity: 1000,
+      openNotional: 400, // total across all assets
+      newNotional: 100,
+      limits,
+      openPositionCount: 2,
+      assetOpenNotional: 400, // all of the existing exposure happens to be in this one asset
+    });
+    expect(result.passed).toBe(false);
+    expect(result.violations.some((v) => v.toLowerCase().includes("concentración"))).toBe(true);
+  });
+
+  it("passes the concentration check when the same total exposure is spread across different assets", () => {
+    const result = checkExposureLimits({
+      equity: 1000,
+      openNotional: 400,
+      newNotional: 100,
+      limits,
+      openPositionCount: 2,
+      assetOpenNotional: 0, // this candidate's asset has nothing open yet
+    });
+    expect(result.passed).toBe(true);
   });
 });
 

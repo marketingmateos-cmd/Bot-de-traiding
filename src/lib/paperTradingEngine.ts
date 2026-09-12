@@ -63,6 +63,16 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
   // (Fase 1.A3 fix — previously stale, allowing exposure to silently
   // compound past the intended limit within one scan).
   let openNotional = openPositions.reduce((sum, p) => sum + p.entryPrice * p.remainingQuantity, 0);
+  // Per-asset notional (Fase 1.A4 fix): the old code only ever prevented the
+  // SAME (asset, strategyVersion) pair from opening twice — nothing stopped
+  // several DIFFERENT strategies from independently piling into the same
+  // asset, each individually within the aggregate exposure limit while their
+  // combined bet on that one asset was not. Updated in-loop just like
+  // openNotional above, so concentration checks stay accurate within the scan.
+  const assetNotionalByAssetId = new Map<string, number>();
+  for (const p of openPositions) {
+    assetNotionalByAssetId.set(p.assetId, (assetNotionalByAssetId.get(p.assetId) ?? 0) + p.entryPrice * p.remainingQuantity);
+  }
   const equity = account.cashBalance; // realized-P&L based; unrealized handled by mark-to-market job
 
   const todayStart = new Date();
@@ -140,6 +150,7 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
         newNotional: sizing.notional,
         limits: riskLimits,
         openPositionCount: openPositions.length,
+        assetOpenNotional: assetNotionalByAssetId.get(asset.id) ?? 0,
       });
 
       const stats = await getStrategyPerformanceStats(version.id);
@@ -265,7 +276,9 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
           message: `${version.strategy.name} v${version.version} — ${signal.reason}`,
         });
         openPositions.push(opened.position);
-        openNotional += opened.position.entryPrice * opened.position.remainingQuantity;
+        const openedNotional = opened.position.entryPrice * opened.position.remainingQuantity;
+        openNotional += openedNotional;
+        assetNotionalByAssetId.set(asset.id, (assetNotionalByAssetId.get(asset.id) ?? 0) + openedNotional);
       } else {
         await recordRejectedOrder({
           accountId,

@@ -19,9 +19,10 @@ import type { AIAnalystOutput, AICriticOutput } from "@/lib/providers/types";
 // gate, position state manager) is real. A brand-new strategy version always
 // has zero trade history, so ROBUSTNESS_CHECK always downgrades to
 // LOW_CONFIDENCE (half execution size) regardless of anything else — the
-// sizing below accounts for that so the margins are large and deterministic
-// rather than sitting on a noisy boundary.
-
+// sizing below accounts for that, and also stays under the per-asset
+// maxConcentrationPct cap (Fase 1.A4) for a single distinct asset, so this
+// test isolates AGGREGATE exposure tracking specifically (each candidate
+// here trades a different asset, so the concentration check never binds).
 const FIXED_STRATEGY: StrategyDefinition = {
   id: "mock-always-long",
   kind: "TREND_FOLLOWING",
@@ -30,11 +31,12 @@ const FIXED_STRATEGY: StrategyDefinition = {
   defaultParams: {},
   timeframe: "H1",
   recommendedRegimes: ["STRONG_BULL", "BULL", "NEUTRAL", "BEAR", "STRONG_BEAR", "RANGE", "HIGH_VOLATILITY", "LOW_VOLATILITY", "TRANSITION"],
-  // A tight 2.5% stop with 1% risk-per-trade (BALANCED / riskLevel 6) sizes
-  // each FULL candidate at ~40% of equity; at the guaranteed LOW_CONFIDENCE
-  // half-size that's a clean ~20% actually added per opened position.
-  defaultStopLossPct: 2.5,
-  defaultTakeProfitPct: 10,
+  // A 7.5% stop with 3% risk-per-trade (riskLevel 10) sizes each FULL
+  // candidate at ~40% of equity (under the 45% per-asset concentration cap
+  // at that level); at the guaranteed LOW_CONFIDENCE half-size that's a
+  // clean ~20% actually added per opened position.
+  defaultStopLossPct: 7.5,
+  defaultTakeProfitPct: 15,
   defaultTrailingStopPct: null,
   costModel: { feeBps: 10, slippageBps: 5 },
   evaluate: () => ({ kind: "TREND_FOLLOWING", direction: "LONG", strength: 1, reason: "mock: always long" }),
@@ -99,7 +101,7 @@ let versionId: string;
 const assetIds: string[] = [];
 let accountId: string;
 
-const NUM_ASSETS = 4; // one strategy version, four assets — one candidate per asset, no cross-strategy interaction to muddy the result
+const NUM_ASSETS = 5; // one strategy version, five distinct assets — one candidate per asset, no cross-strategy/same-asset interaction to muddy the result
 
 beforeAll(async () => {
   const user = await prisma.user.create({ data: { email: `exposure-audit-${Date.now()}@example.com`, name: "Exposure Audit" } });
@@ -131,9 +133,11 @@ beforeAll(async () => {
     assetIds.push(asset.id);
   }
 
-  // riskLevel 6 == BALANCED: riskPerTradePct 1%, maxExposurePct 50%, maxOpenPositions 4.
+  // riskLevel 10: riskPerTradePct 3%, maxExposurePct 90%, maxOpenPositions 8,
+  // maxConcentrationPct 45% — generous enough on position count/concentration
+  // that only the AGGREGATE exposure cap can bind in this scenario.
   const account = await prisma.paperAccount.create({
-    data: { userId, name: "Exposure Audit Account", startingBalance: 10000, cashBalance: 10000, riskLevel: 6 },
+    data: { userId, name: "Exposure Audit Account", startingBalance: 10000, cashBalance: 10000, riskLevel: 10 },
   });
   accountId = account.id;
 });
@@ -165,13 +169,13 @@ describe("AUDIT: runPaperTradingScan keeps openNotional live within a single sca
     const exposurePct = (totalNotional / account.startingBalance) * 100;
 
     // With the bug, every candidate's exposure check sees openNotional stuck
-    // at 0 (from before the scan started), so all 4 assets would open
-    // (limited only by maxOpenPositions=4) at ~20% actual each — a real
-    // total of ~80%, blowing far past the account's 50% maxExposurePct.
-    // With the fix, only as many open as fit under that 50% cap (2, at
-    // ~20% actual each = ~40% total) before the next candidate is
+    // at 0 (from before the scan started), so all 5 assets would open
+    // (limited only by maxOpenPositions=8) at ~20% actual each — a real
+    // total of ~100%, blowing far past the account's 90% maxExposurePct.
+    // With the fix, only as many open as fit under that 90% cap (3, at
+    // ~20% actual each = ~60% total) before the next candidate is
     // correctly BLOCKED by RISK_CHECK.
-    expect(exposurePct).toBeLessThanOrEqual(50 + 1e-6);
+    expect(exposurePct).toBeLessThanOrEqual(90 + 1e-6);
     expect(openPositions.length).toBeGreaterThan(0);
     expect(openPositions.length).toBeLessThan(NUM_ASSETS);
   });

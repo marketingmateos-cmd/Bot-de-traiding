@@ -6,10 +6,11 @@ export const RISK_PROFILE_DEFAULTS: Record<Exclude<RiskProfile, "CUSTOM">, {
   maxOpenPositions: number;
   maxDailyLossPct: number;
   maxDrawdownPct: number;
+  maxConcentrationPct: number; // % of equity allowed in a SINGLE asset, across all strategies/positions combined
 }> = {
-  CONSERVATIVE: { riskPerTradePct: 0.5, maxExposurePct: 30, maxOpenPositions: 2, maxDailyLossPct: 2, maxDrawdownPct: 10 },
-  BALANCED: { riskPerTradePct: 1, maxExposurePct: 50, maxOpenPositions: 4, maxDailyLossPct: 4, maxDrawdownPct: 18 },
-  AGGRESSIVE: { riskPerTradePct: 2, maxExposurePct: 75, maxOpenPositions: 6, maxDailyLossPct: 8, maxDrawdownPct: 30 },
+  CONSERVATIVE: { riskPerTradePct: 0.5, maxExposurePct: 30, maxOpenPositions: 2, maxDailyLossPct: 2, maxDrawdownPct: 10, maxConcentrationPct: 15 },
+  BALANCED: { riskPerTradePct: 1, maxExposurePct: 50, maxOpenPositions: 4, maxDailyLossPct: 4, maxDrawdownPct: 18, maxConcentrationPct: 25 },
+  AGGRESSIVE: { riskPerTradePct: 2, maxExposurePct: 75, maxOpenPositions: 6, maxDailyLossPct: 8, maxDrawdownPct: 30, maxConcentrationPct: 35 },
 };
 
 export interface RiskLimits {
@@ -18,6 +19,7 @@ export interface RiskLimits {
   maxOpenPositions: number;
   maxDailyLossPct: number;
   maxDrawdownPct: number;
+  maxConcentrationPct: number;
 }
 
 export function resolveRiskLimits(profile: RiskProfile, custom?: Partial<RiskLimits>): RiskLimits {
@@ -28,6 +30,7 @@ export function resolveRiskLimits(profile: RiskProfile, custom?: Partial<RiskLim
       maxOpenPositions: custom?.maxOpenPositions ?? 4,
       maxDailyLossPct: custom?.maxDailyLossPct ?? 4,
       maxDrawdownPct: custom?.maxDrawdownPct ?? 18,
+      maxConcentrationPct: custom?.maxConcentrationPct ?? 25,
     };
   }
   return RISK_PROFILE_DEFAULTS[profile];
@@ -39,11 +42,11 @@ export function resolveRiskLimits(profile: RiskProfile, custom?: Partial<RiskLim
 // interpolated between them, so every one of the 10 levels produces a
 // genuinely distinct set of limits rather than just relabeling 4 buckets.
 const RISK_LEVEL_ANCHORS: [level: number, limits: RiskLimits][] = [
-  [1, { riskPerTradePct: 0.3, maxExposurePct: 20, maxOpenPositions: 1, maxDailyLossPct: 1.5, maxDrawdownPct: 8 }],
+  [1, { riskPerTradePct: 0.3, maxExposurePct: 20, maxOpenPositions: 1, maxDailyLossPct: 1.5, maxDrawdownPct: 8, maxConcentrationPct: 10 }],
   [3, RISK_PROFILE_DEFAULTS.CONSERVATIVE],
   [6, RISK_PROFILE_DEFAULTS.BALANCED],
   [8, RISK_PROFILE_DEFAULTS.AGGRESSIVE],
-  [10, { riskPerTradePct: 3, maxExposurePct: 90, maxOpenPositions: 8, maxDailyLossPct: 12, maxDrawdownPct: 40 }],
+  [10, { riskPerTradePct: 3, maxExposurePct: 90, maxOpenPositions: 8, maxDailyLossPct: 12, maxDrawdownPct: 40, maxConcentrationPct: 45 }],
 ];
 
 export type RiskPreset = "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE" | "VERY_AGGRESSIVE";
@@ -81,6 +84,7 @@ export function resolveRiskLimitsForLevel(levelInput: number): RiskLimits {
     maxOpenPositions: Math.round(lerp(lowLimits.maxOpenPositions, highLimits.maxOpenPositions, t)),
     maxDailyLossPct: Math.round(lerp(lowLimits.maxDailyLossPct, highLimits.maxDailyLossPct, t) * 10) / 10,
     maxDrawdownPct: Math.round(lerp(lowLimits.maxDrawdownPct, highLimits.maxDrawdownPct, t)),
+    maxConcentrationPct: Math.round(lerp(lowLimits.maxConcentrationPct, highLimits.maxConcentrationPct, t)),
   };
 }
 
@@ -113,10 +117,19 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
 
 export interface ExposureCheckInput {
   equity: number;
-  openNotional: number; // sum of existing open position notionals
+  openNotional: number; // sum of existing open position notionals (all assets, all strategies)
   newNotional: number;
   limits: RiskLimits;
   openPositionCount: number;
+  /**
+   * Sum of existing open position notionals for the SAME asset this
+   * candidate would trade, across every strategy version — not just the
+   * one asking to open now. Without this, the aggregate exposure check
+   * alone can't stop several different strategies from independently
+   * piling into one asset (Fase 1.A4 fix): each stays under the total
+   * exposure cap while their combined bet on that one asset does not.
+   */
+  assetOpenNotional: number;
 }
 
 export interface RiskCheckResult {
@@ -135,6 +148,14 @@ export function checkExposureLimits(input: ExposureCheckInput): RiskCheckResult 
   }
   if (input.openPositionCount + 1 > input.limits.maxOpenPositions) {
     violations.push(`Abrir esta posición superaría el máximo de posiciones abiertas (${input.limits.maxOpenPositions}).`);
+  }
+
+  const assetTotalNotional = input.assetOpenNotional + input.newNotional;
+  const assetConcentrationPctAfter = input.equity > 0 ? (assetTotalNotional / input.equity) * 100 : 100;
+  if (assetConcentrationPctAfter > input.limits.maxConcentrationPct) {
+    violations.push(
+      `La concentración proyectada en este activo (${assetConcentrationPctAfter.toFixed(1)}%, sumando todas las estrategias) supera el máximo de ${input.limits.maxConcentrationPct}% por activo.`
+    );
   }
 
   return { passed: violations.length === 0, violations, exposurePctAfter };

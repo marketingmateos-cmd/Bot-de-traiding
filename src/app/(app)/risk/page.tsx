@@ -33,6 +33,7 @@ export default async function RiskPage() {
         <StatTile label="Máx. Posiciones Abiertas" value={limits.maxOpenPositions} sublabel={`Actual: ${openPositions.length}`} />
         <StatTile label="Pérdida Diaria Máxima" value={`${limits.maxDailyLossPct}%`} />
         <StatTile label="Drawdown Máximo" value={`${limits.maxDrawdownPct}%`} />
+        <StatTile label="Concentración Máx. por Activo" value={`${limits.maxConcentrationPct}%`} sublabel="Suma de todas las estrategias en un mismo activo" />
       </div>
 
       <Card title="Cortafuegos" subtitle="Mecanismos de emergencia independientes — un cortafuegos activado bloquea TODAS las nuevas operaciones simuladas hasta resolverse.">
