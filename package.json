@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "main": "electron/main.js",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "setup": "bash scripts/setup.sh",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "build:railway": "next build && node scripts/copy-standalone-assets.mjs",
-    "start:railway": "node scripts/ensure-db.mjs && node .next/standalone/server.js",
+    "start:railway": "node scripts/ensure-db.mjs && next start -p ${PORT:-3000}",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -19,7 +21,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
-    "desktop:prepare": "next build && node scripts/prepare-desktop.mjs",
+    "desktop:prepare": "node scripts/prepare-desktop.mjs",
     "desktop:dev": "electron .",
     "desktop:build:win": "npm run desktop:prepare && electron-builder --win --x64 --publish=never",
     "desktop:build:linux": "npm run desktop:prepare && electron-builder --linux --x64 --publish=never",

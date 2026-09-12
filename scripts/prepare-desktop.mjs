@@ -8,13 +8,20 @@
 //      user's per-machine app-data folder the first time it starts, then
 //      only ever touches that copy).
 //
-// Run after `next build` and before `electron-builder`.
+// Run before `electron-builder`.
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+
+// BUILD_TARGET=desktop switches next.config.ts to `output: "standalone"` —
+// only the packaged desktop build needs that, not a normal hosted deploy —
+// set here (via execSync's env, not shell syntax) so it works the same way
+// whether this runs under bash (Linux/macOS) or PowerShell (Windows CI).
+console.log("-> Compilando Next.js en modo standalone (para el escritorio)...");
+execSync("npx next build", { cwd: root, env: { ...process.env, BUILD_TARGET: "desktop" }, stdio: "inherit" });
 
 execSync("node scripts/copy-standalone-assets.mjs", { cwd: root, stdio: "inherit" });
 

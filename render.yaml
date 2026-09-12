@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     branch: claude/crypto-ai-trading-lab-fba1xa
-    buildCommand: npm ci && npx prisma generate && npm run build:railway
+    buildCommand: npm ci && npx prisma generate && npm run build
     startCommand: npm run start:railway
     healthCheckPath: /dashboard
     envVars:
