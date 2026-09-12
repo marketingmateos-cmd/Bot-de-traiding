@@ -10,21 +10,13 @@
 //
 // Run after `next build` and before `electron-builder`.
 import { execSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const standaloneDir = join(root, ".next", "standalone");
 
-if (!existsSync(standaloneDir)) {
-  console.error("No se encontró .next/standalone — ejecuta `npm run build` primero.");
-  process.exit(1);
-}
-
-console.log("-> Copiando assets estáticos al build standalone...");
-cpSync(join(root, ".next", "static"), join(standaloneDir, ".next", "static"), { recursive: true });
-cpSync(join(root, "public"), join(standaloneDir, "public"), { recursive: true });
+execSync("node scripts/copy-standalone-assets.mjs", { cwd: root, stdio: "inherit" });
 
 console.log("-> Generando la base de datos plantilla (esquema + datos de ejemplo)...");
 const resourcesDir = join(root, "build-resources");
