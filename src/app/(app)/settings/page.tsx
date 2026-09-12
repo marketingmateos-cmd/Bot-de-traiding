@@ -4,7 +4,7 @@ import { getBudgetStatus } from "@/lib/engines/aiBudget";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatTile } from "@/components/ui/StatTile";
-import { RiskProfileForm } from "@/components/settings/RiskProfileForm";
+import { RiskLevelSlider } from "@/components/settings/RiskProfileForm";
 import { CircuitBreakerList } from "@/components/settings/CircuitBreakerList";
 
 export const dynamic = "force-dynamic";
@@ -32,8 +32,8 @@ export default async function SettingsPage() {
         </div>
       </Card>
 
-      <Card title="Perfil de Riesgo">
-        <RiskProfileForm accountId={ACCOUNT_ID} current={account?.riskProfile ?? "BALANCED"} />
+      <Card title="Bot Risk">
+        <RiskLevelSlider accountId={ACCOUNT_ID} current={account?.riskLevel ?? 5} />
       </Card>
 
       <Card title="Presupuesto de IA">

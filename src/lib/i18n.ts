@@ -48,6 +48,7 @@ export function tRiskProfile(profile: string): string {
     CONSERVATIVE: "CONSERVADOR",
     BALANCED: "EQUILIBRADO",
     AGGRESSIVE: "AGRESIVO",
+    VERY_AGGRESSIVE: "MUY AGRESIVO",
     CUSTOM: "PERSONALIZADO",
   };
   return map[profile] ?? profile;

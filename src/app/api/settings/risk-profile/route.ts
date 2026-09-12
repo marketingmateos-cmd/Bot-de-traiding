@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { logAudit } from "@/lib/engines/auditLog";
+import { riskPresetForLevel } from "@/lib/engines/riskEngine";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
-  const { accountId, riskProfile } = body as { accountId: string; riskProfile: string };
-  if (!accountId || !riskProfile) return NextResponse.json({ ok: false, error: "Missing fields" }, { status: 400 });
+  const { accountId, riskLevel } = body as { accountId: string; riskLevel: number };
+  if (!accountId || !riskLevel || riskLevel < 1 || riskLevel > 10) {
+    return NextResponse.json({ ok: false, error: "Missing or invalid fields" }, { status: 400 });
+  }
 
-  await prisma.paperAccount.update({ where: { id: accountId }, data: { riskProfile } });
-  await logAudit({ action: "RISK_PROFILE_CHANGED", entity: "PaperAccount", entityId: accountId, data: { riskProfile } });
+  // riskProfile stays a derived display label — resolveRiskLimitsForLevel(riskLevel)
+  // is the actual source of truth for sizing everywhere it's used.
+  const riskProfile = riskPresetForLevel(riskLevel);
+  await prisma.paperAccount.update({ where: { id: accountId }, data: { riskLevel, riskProfile } });
+  await logAudit({ action: "RISK_LEVEL_CHANGED", entity: "PaperAccount", entityId: accountId, data: { riskLevel, riskProfile } });
 
   return NextResponse.json({ ok: true });
 }

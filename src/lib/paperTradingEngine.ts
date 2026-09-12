@@ -4,7 +4,7 @@ import { getStrategyById } from "@/lib/engines/strategy";
 import { getAIProvider } from "@/lib/providers/registry";
 import { getBudgetStatus, recordAIUsage, getCached, setCached } from "@/lib/engines/aiBudget";
 import { runTradeGate } from "@/lib/engines/tradeGate";
-import { calculatePositionSize, checkExposureLimits, resolveRiskLimits, type RiskProfile } from "@/lib/engines/riskEngine";
+import { calculatePositionSize, checkExposureLimits, resolveRiskLimitsForLevel } from "@/lib/engines/riskEngine";
 import { evaluateCircuitBreakers, anyBreakerTripped } from "@/lib/engines/circuitBreakers";
 import { reconcilePositions, openPosition, recordRejectedOrder } from "@/lib/engines/positionStateManager";
 import { getStrategyPerformanceStats } from "@/lib/engines/strategyStats";
@@ -76,7 +76,7 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
     if (peak > 0) maxDrawdownPct = Math.max(maxDrawdownPct, ((peak - running) / peak) * 100);
   }
 
-  const riskLimits = resolveRiskLimits(account.riskProfile as RiskProfile);
+  const riskLimits = resolveRiskLimitsForLevel(account.riskLevel);
   const aiProvider = getAIProvider();
   const budget = await getBudgetStatus();
 

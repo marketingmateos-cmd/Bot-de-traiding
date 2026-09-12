@@ -33,6 +33,57 @@ export function resolveRiskLimits(profile: RiskProfile, custom?: Partial<RiskLim
   return RISK_PROFILE_DEFAULTS[profile];
 }
 
+// The real 1-10 dial (spec: "Bot Risk" slider). Anchored at four points —
+// 1 and 3 bracket Conservative, 4 and 6 bracket Balanced, 7 and 8 bracket
+// Aggressive, 9 and 10 extrapolate to Very Aggressive — and linearly
+// interpolated between them, so every one of the 10 levels produces a
+// genuinely distinct set of limits rather than just relabeling 4 buckets.
+const RISK_LEVEL_ANCHORS: [level: number, limits: RiskLimits][] = [
+  [1, { riskPerTradePct: 0.3, maxExposurePct: 20, maxOpenPositions: 1, maxDailyLossPct: 1.5, maxDrawdownPct: 8 }],
+  [3, RISK_PROFILE_DEFAULTS.CONSERVATIVE],
+  [6, RISK_PROFILE_DEFAULTS.BALANCED],
+  [8, RISK_PROFILE_DEFAULTS.AGGRESSIVE],
+  [10, { riskPerTradePct: 3, maxExposurePct: 90, maxOpenPositions: 8, maxDailyLossPct: 12, maxDrawdownPct: 40 }],
+];
+
+export type RiskPreset = "CONSERVATIVE" | "BALANCED" | "AGGRESSIVE" | "VERY_AGGRESSIVE";
+
+export function riskPresetForLevel(level: number): RiskPreset {
+  if (level <= 3) return "CONSERVATIVE";
+  if (level <= 6) return "BALANCED";
+  if (level <= 8) return "AGGRESSIVE";
+  return "VERY_AGGRESSIVE";
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+/** Real, quantitative effect of the 1-10 risk slider — see spec section 12. */
+export function resolveRiskLimitsForLevel(levelInput: number): RiskLimits {
+  const level = Math.max(1, Math.min(10, levelInput));
+  let lower = RISK_LEVEL_ANCHORS[0];
+  let upper = RISK_LEVEL_ANCHORS[RISK_LEVEL_ANCHORS.length - 1];
+  for (let i = 0; i < RISK_LEVEL_ANCHORS.length - 1; i++) {
+    if (level >= RISK_LEVEL_ANCHORS[i][0] && level <= RISK_LEVEL_ANCHORS[i + 1][0]) {
+      lower = RISK_LEVEL_ANCHORS[i];
+      upper = RISK_LEVEL_ANCHORS[i + 1];
+      break;
+    }
+  }
+  const [lowLevel, lowLimits] = lower;
+  const [highLevel, highLimits] = upper;
+  const t = highLevel === lowLevel ? 0 : (level - lowLevel) / (highLevel - lowLevel);
+
+  return {
+    riskPerTradePct: Math.round(lerp(lowLimits.riskPerTradePct, highLimits.riskPerTradePct, t) * 100) / 100,
+    maxExposurePct: Math.round(lerp(lowLimits.maxExposurePct, highLimits.maxExposurePct, t)),
+    maxOpenPositions: Math.round(lerp(lowLimits.maxOpenPositions, highLimits.maxOpenPositions, t)),
+    maxDailyLossPct: Math.round(lerp(lowLimits.maxDailyLossPct, highLimits.maxDailyLossPct, t) * 10) / 10,
+    maxDrawdownPct: Math.round(lerp(lowLimits.maxDrawdownPct, highLimits.maxDrawdownPct, t)),
+  };
+}
+
 export interface PositionSizeInput {
   equity: number;
   entryPrice: number;

@@ -37,6 +37,7 @@ model Asset {
   id           String   @id @default(cuid())
   symbol       String   @unique // e.g. "BTC"
   name         String
+  assetClass   String   @default("CRYPTO") // CRYPTO | FOREX | METALS — see AssetClass in src/lib/providers/types.ts
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
 
@@ -324,7 +325,8 @@ model PaperAccount {
   baseCurrency   String   @default("EUR")
   startingBalance Float   @default(100)
   cashBalance    Float    @default(100)
-  riskProfile    String   @default("BALANCED") // CONSERVATIVE, BALANCED, AGGRESSIVE, CUSTOM
+  riskProfile    String   @default("BALANCED") // derived label — CONSERVATIVE, BALANCED, AGGRESSIVE, VERY_AGGRESSIVE, CUSTOM
+  riskLevel      Int      @default(5) // 1-10, the real dial — see resolveRiskLimitsForLevel in riskEngine.ts
   isTradingBlocked Boolean @default(false)
   blockedReason  String?
   createdAt      DateTime @default(now())
@@ -534,6 +536,26 @@ model AIUsage {
   cacheMisses    Int      @default(0)
 
   @@unique([day])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AUTONOMOUS BOT LOOP
+// ─────────────────────────────────────────────────────────────────────────
+
+// Singleton row (id always "main") — the on/off switch and last-run bookkeeping
+// for the continuous paper-trading loop (see src/lib/botLoop.ts). Bot status
+// (plain String): ACTIVE | PAUSED | ANALYZING | WAITING | BLOCKED | ERROR | DEGRADED
+model BotConfig {
+  id                 String    @id @default("main")
+  accountId          String    @default("main-paper-account")
+  isActive           Boolean   @default(true)
+  status             String    @default("WAITING")
+  statusDetail       String?
+  intervalSeconds    Int       @default(60)
+  lastRunAt          DateTime?
+  lastRunDurationMs  Int?
+  nextRunAt          DateTime?
+  updatedAt          DateTime  @updatedAt
 }
 
 // ─────────────────────────────────────────────────────────────────────────

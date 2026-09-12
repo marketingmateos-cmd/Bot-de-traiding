@@ -1,31 +1,47 @@
 import { prisma } from "@/lib/db";
-import { getSymbolAnalysis } from "@/lib/orchestrator";
-import { getBudgetStatus } from "@/lib/engines/aiBudget";
-import { getStrategyPerformanceStats } from "@/lib/engines/strategyStats";
-import { assessEvidence } from "@/lib/engines/luckVsEdge";
+import { getMarketDataProvider } from "@/lib/providers/registry";
+import { ensureBotConfig } from "@/lib/botLoop";
+import { riskPresetForLevel } from "@/lib/engines/riskEngine";
 import { computeDrawdown } from "@/lib/engines/riskEngine";
-import { SUPPORTED_ASSETS } from "@/lib/env";
 import { Card } from "@/components/ui/Card";
 import { StatTile } from "@/components/ui/StatTile";
-import { Badge, regimeTone, verdictTone } from "@/components/ui/Badge";
-import { tDirection, tExitReason, tRegime, tSeverity } from "@/lib/i18n";
+import { Badge, verdictTone } from "@/components/ui/Badge";
+import { BotStatusCard } from "@/components/dashboard/BotStatusCard";
+import { tDirection, tExitReason, tRiskProfile } from "@/lib/i18n";
+import { fromJson } from "@/lib/json";
+import type { AIAnalystOutput } from "@/lib/providers/types";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 const ACCOUNT_ID = "main-paper-account";
 
 export default async function DashboardPage() {
-  const [account, openPositions, recentTrades, alerts, breakers, strategyVersions] = await Promise.all([
+  const [account, openPositions, recentTrades, alerts, breakers, assets, botConfig] = await Promise.all([
     prisma.paperAccount.findUnique({ where: { id: ACCOUNT_ID } }),
-    prisma.paperPosition.findMany({ where: { accountId: ACCOUNT_ID, status: { in: ["OPEN", "PARTIALLY_CLOSED"] } }, include: { asset: true } }),
-    prisma.trade.findMany({ where: { accountId: ACCOUNT_ID }, orderBy: { closedAt: "desc" }, take: 8, include: { asset: true } }),
-    prisma.systemAlert.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),
+    prisma.paperPosition.findMany({
+      where: { accountId: ACCOUNT_ID, status: { in: ["OPEN", "PARTIALLY_CLOSED"] } },
+      include: { asset: true, strategyVersion: { include: { strategy: true } } },
+      orderBy: { openedAt: "desc" },
+    }),
+    prisma.trade.findMany({ where: { accountId: ACCOUNT_ID }, orderBy: { closedAt: "desc" }, take: 6, include: { asset: true } }),
+    prisma.systemAlert.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
     prisma.circuitBreaker.findMany({ where: { isTripped: true } }),
-    prisma.strategyVersion.findMany({ where: { strategy: { isActive: true } }, include: { strategy: true } }),
+    prisma.asset.findMany({ where: { isActive: true } }),
+    ensureBotConfig(),
   ]);
 
-  const budget = await getBudgetStatus();
-  const headline = await getSymbolAnalysis("BTC", "H1");
+  const marketProvider = getMarketDataProvider();
+  const positionsWithLive = await Promise.all(
+    openPositions.map(async (p) => {
+      const latest = await marketProvider.getLatestPrice(p.asset.symbol);
+      const currentPrice = latest?.price ?? p.entryPrice;
+      const sign = p.direction === "LONG" ? 1 : -1;
+      const unrealizedPnl = sign * (currentPrice - p.entryPrice) * p.remainingQuantity;
+      const unrealizedPnlPct = p.entryPrice > 0 ? (sign * (currentPrice - p.entryPrice) * 100) / p.entryPrice : 0;
+      const durationMs = Date.now() - p.openedAt.getTime();
+      return { ...p, currentPrice, unrealizedPnl, unrealizedPnlPct, durationMs };
+    })
+  );
 
   const allTrades = await prisma.trade.findMany({ where: { accountId: ACCOUNT_ID }, orderBy: { closedAt: "asc" } });
   let running = account?.startingBalance ?? 100;
@@ -35,39 +51,57 @@ export default async function DashboardPage() {
     equityCurve.push(running);
   }
   const drawdown = computeDrawdown(equityCurve);
-  const wins = allTrades.filter((t) => t.netPnl > 0).length;
-  const winRate = allTrades.length ? (wins / allTrades.length) * 100 : 0;
-  const equity = account?.cashBalance ?? 100;
-  const totalPnl = equity - (account?.startingBalance ?? 100);
+  const realizedPnl = (account?.cashBalance ?? 100) - (account?.startingBalance ?? 100);
+  const unrealizedPnl = positionsWithLive.reduce((s, p) => s + p.unrealizedPnl, 0);
+  const totalPnl = realizedPnl + unrealizedPnl;
+  const equity = (account?.cashBalance ?? 100) + unrealizedPnl;
 
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
   const todaysTrades = allTrades.filter((t) => t.closedAt >= todayStart);
-  const dailyPnl = todaysTrades.reduce((s, t) => s + t.netPnl, 0);
+  const todayRealizedPnl = todaysTrades.reduce((s, t) => s + t.netPnl, 0);
+  const todayPnl = todayRealizedPnl + unrealizedPnl;
 
-  const leagueEntries = await Promise.all(
-    strategyVersions.map(async (v) => {
-      const stats = await getStrategyPerformanceStats(v.id);
-      const evidence = assessEvidence(stats);
-      return { name: v.strategy.name, stats, evidence };
-    })
-  );
-  const failingStrategies = leagueEntries.filter((e) => e.stats.trades > 0 && e.stats.totalNetPnl < 0);
-  const insufficientEvidenceCount = leagueEntries.filter((e) => e.evidence.evidenceLevel === "LOW").length;
+  const riskLevel = account?.riskLevel ?? 5;
 
-  const dataQualityScores = await Promise.all(
-    SUPPORTED_ASSETS.slice(0, 3).map(async (a) => (await getSymbolAnalysis(a.symbol, "H1")).dataQuality.score)
-  );
-  const avgDataQuality = Math.round(dataQualityScores.reduce((a, b) => a + b, 0) / dataQualityScores.length);
+  const recentAnalyses = await prisma.aIAnalysis.findMany({
+    where: { kind: "ANALYST" },
+    orderBy: { createdAt: "desc" },
+    take: 30,
+  });
+  const assetById = new Map(assets.map((a) => [a.id, a]));
+  const seen = new Set<string>();
+  const opportunities: { symbol: string; direction: string; confidence: number; reason: string }[] = [];
+  for (const a of recentAnalyses) {
+    const output = fromJson<AIAnalystOutput | null>(a.output, null);
+    if (!output || output.signal === "FLAT" || !a.assetId) continue;
+    const asset = assetById.get(a.assetId);
+    if (!asset) continue;
+    const key = `${asset.symbol}:${a.strategyVersionId ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    opportunities.push({
+      symbol: asset.symbol,
+      direction: output.signal,
+      confidence: Math.round(output.confidence * 100),
+      reason: output.reasons[0] ?? "",
+    });
+    if (opportunities.length >= 5) break;
+  }
+
+  const assetClassCounts = assets.reduce<Record<string, number>>((acc, a) => {
+    acc[a.assetClass] = (acc[a.assetClass] ?? 0) + 1;
+    return acc;
+  }, {});
 
   return (
     <div className="flex flex-col gap-5">
       <div>
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold text-slate-100">Panel Principal</h1>
-          <Badge tone="muted">MODO DEMO</Badge>
+          <h1 className="text-lg font-semibold text-slate-100">AI Trading Bot Lab</h1>
+          <Badge tone="muted">MODO DEMO — solo paper trading</Badge>
         </div>
-        <p className="mt-1 text-sm text-muted">Qué está pasando ahora mismo en el laboratorio — solo paper trading, nada aquí toca dinero real.</p>
+        <p className="mt-1 text-sm text-muted">Qué está haciendo el bot ahora mismo, en una sola pantalla.</p>
       </div>
 
       {breakers.length > 0 && (
@@ -81,99 +115,127 @@ export default async function DashboardPage() {
             ))}
           </ul>
           <Link href="/risk" className="mt-2 inline-block text-xs text-accent underline">
-            Ir al Centro de Riesgo para resolverlo →
+            Ir al Centro de Riesgo →
           </Link>
         </Card>
       )}
 
+      <BotStatusCard marketsMonitored={assets.length} />
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
-        <StatTile label="Equity de la Cartera" value={`€${equity.toFixed(2)}`} sublabel={`Inicio: €${(account?.startingBalance ?? 100).toFixed(2)}`} />
+        <StatTile label="Equity" value={`€${equity.toFixed(2)}`} sublabel={`Inicio: €${(account?.startingBalance ?? 100).toFixed(2)}`} />
+        <StatTile label="P&L Hoy" value={`${todayPnl >= 0 ? "+" : ""}€${todayPnl.toFixed(2)}`} tone={todayPnl >= 0 ? "positive" : "negative"} />
         <StatTile label="P&L Total" value={`${totalPnl >= 0 ? "+" : ""}€${totalPnl.toFixed(2)}`} tone={totalPnl >= 0 ? "positive" : "negative"} />
-        <StatTile label="P&L Diario" value={`${dailyPnl >= 0 ? "+" : ""}€${dailyPnl.toFixed(2)}`} tone={dailyPnl >= 0 ? "positive" : "negative"} />
-        <StatTile label="Drawdown" value={`${drawdown.current.toFixed(1)}%`} sublabel={`Máx: ${drawdown.max.toFixed(1)}%`} tone={drawdown.current > 10 ? "negative" : "neutral"} />
-        <StatTile label="Tasa de Acierto" value={`${winRate.toFixed(0)}%`} sublabel={`${allTrades.length} operaciones cerradas`} />
+        <StatTile label="No Realizado" value={`${unrealizedPnl >= 0 ? "+" : ""}€${unrealizedPnl.toFixed(2)}`} tone={unrealizedPnl >= 0 ? "positive" : "negative"} />
         <StatTile label="Posiciones Abiertas" value={openPositions.length} />
+        <StatTile label="Risk Level" value={`${riskLevel}/10`} sublabel={tRiskProfile(riskPresetForLevel(riskLevel))} />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card title="Inteligencia de Mercado — BTC" subtitle={`Régimen: ${tRegime(headline.regime.regime)}`} className="lg:col-span-1">
-          {headline.marketIntelligence ? (
-            <>
-              <div className="mb-3 font-mono text-3xl font-bold text-accent">{headline.marketIntelligence.score}<span className="text-sm text-muted">/100</span></div>
-              <div className="flex flex-wrap gap-1.5">
-                <Badge tone={regimeTone(headline.regime.regime)}>{tRegime(headline.regime.regime)}</Badge>
-                <Badge tone="muted">Confianza de Datos {headline.marketIntelligence.dataConfidence}%</Badge>
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted">Aún no hay suficientes velas para calcularlo.</p>
-          )}
-          <Link href="/intelligence" className="mt-3 inline-block text-xs text-accent underline">
-            Ver desglose completo →
+      <Card
+        title="Posiciones Abiertas"
+        subtitle={`${positionsWithLive.length} abierta(s)`}
+        actions={
+          <Link href="/paper-trading" className="text-xs text-accent underline">
+            Ver todas →
           </Link>
-        </Card>
-
-        <Card title="¿Qué está aprendiendo el sistema?" className="lg:col-span-1">
-          <ul className="flex flex-col gap-2 text-xs text-slate-300">
-            <li>
-              <span className="font-semibold text-slate-100">{leagueEntries.length}</span> versión(es) de estrategia activa(s) monitorizada(s).
-            </li>
-            <li>
-              <span className="font-semibold text-warn">{insufficientEvidenceCount}</span> versión(es) de estrategia con EVIDENCIA INSUFICIENTE — ver{" "}
-              <Link href="/luck-vs-edge" className="text-accent underline">Suerte vs Ventaja</Link>.
-            </li>
-            <li>
-              <span className="font-semibold text-danger">{failingStrategies.length}</span> versión(es) de estrategia actualmente en negativo en paper trading.
-            </li>
-            <li>
-              Calidad de datos en los activos muestreados: <span className="font-semibold text-slate-100">{avgDataQuality}/100</span>.
-            </li>
-          </ul>
-          <Link href="/league" className="mt-3 inline-block text-xs text-accent underline">
-            Liga de Estrategias →
-          </Link>
-        </Card>
-
-        <Card title="Uso de IA Hoy" className="lg:col-span-1">
-          <div className="grid grid-cols-2 gap-3">
-            <StatTile label="Llamadas Hoy" value={`${budget.callsToday}/${budget.dailyBudget}`} />
-            <StatTile label="Presupuesto Restante" value={`${budget.budgetRemainingPct.toFixed(0)}%`} />
-            <StatTile label="Coste Est. (mes)" value={`$${budget.monthlyCostUsd.toFixed(2)}`} />
-            <StatTile label="Tasa de Acierto de Caché" value={`${(budget.cacheHitRate * 100).toFixed(0)}%`} />
+        }
+      >
+        {positionsWithLive.length === 0 ? (
+          <p className="text-sm text-muted">No hay posiciones abiertas — el bot está esperando una oportunidad.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-muted">
+                <tr>
+                  <th className="py-1 pr-3">Activo</th>
+                  <th className="py-1 pr-3">Dir</th>
+                  <th className="py-1 pr-3">Entrada</th>
+                  <th className="py-1 pr-3">Actual</th>
+                  <th className="py-1 pr-3">P&L</th>
+                  <th className="py-1 pr-3">P&L %</th>
+                  <th className="py-1 pr-3">Duración</th>
+                  <th className="py-1 pr-3">Estrategia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {positionsWithLive.map((p) => (
+                  <tr key={p.id} className="border-t border-bg-border">
+                    <td className="py-1.5 pr-3 font-medium">{p.asset.symbol}</td>
+                    <td className="py-1.5 pr-3">
+                      <Badge tone={p.direction === "LONG" ? "success" : "danger"}>{tDirection(p.direction)}</Badge>
+                    </td>
+                    <td className="py-1.5 pr-3 font-mono">{p.entryPrice.toFixed(2)}</td>
+                    <td className="py-1.5 pr-3 font-mono">{p.currentPrice.toFixed(2)}</td>
+                    <td className={`py-1.5 pr-3 font-mono ${p.unrealizedPnl >= 0 ? "text-accent" : "text-danger"}`}>
+                      {p.unrealizedPnl >= 0 ? "+" : ""}
+                      {p.unrealizedPnl.toFixed(2)}
+                    </td>
+                    <td className={`py-1.5 pr-3 font-mono ${p.unrealizedPnlPct >= 0 ? "text-accent" : "text-danger"}`}>
+                      {p.unrealizedPnlPct >= 0 ? "+" : ""}
+                      {p.unrealizedPnlPct.toFixed(2)}%
+                    </td>
+                    <td className="py-1.5 pr-3 text-muted">{Math.round(p.durationMs / 60000)}m</td>
+                    <td className="py-1.5 pr-3 text-muted">{p.strategyVersion?.strategy.name ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </Card>
-      </div>
+        )}
+      </Card>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card title="Posiciones Simuladas Abiertas" subtitle={`${openPositions.length} abierta(s)`}>
-          {openPositions.length === 0 ? (
-            <p className="text-sm text-muted">No hay posiciones abiertas.</p>
+        <Card title="Top Opportunities" subtitle="Lo que el bot está viendo — no se abre nada manualmente aquí">
+          {opportunities.length === 0 ? (
+            <p className="text-sm text-muted">Sin señales recientes.</p>
           ) : (
             <div className="flex flex-col gap-2">
-              {openPositions.map((p) => (
-                <div key={p.id} className="flex items-center justify-between rounded border border-bg-border bg-black/20 px-3 py-2 text-sm">
+              {opportunities.map((o, i) => (
+                <div key={i} className="flex items-center justify-between rounded border border-bg-border bg-black/20 px-3 py-2 text-xs">
                   <div>
-                    <span className="font-semibold">{p.asset.symbol}</span>{" "}
-                    <Badge tone={p.direction === "LONG" ? "success" : "danger"}>{tDirection(p.direction)}</Badge>
+                    <span className="font-medium">{o.symbol}</span> <Badge tone={o.direction === "LONG" ? "success" : "danger"}>{tDirection(o.direction)}</Badge>
+                    <div className="mt-0.5 text-muted">{o.reason}</div>
                   </div>
-                  <div className="font-mono text-xs text-muted">entrada {p.entryPrice.toFixed(2)}</div>
+                  <span className="font-mono text-slate-200">{o.confidence}%</span>
                 </div>
               ))}
             </div>
           )}
-          <Link href="/paper-trading" className="mt-3 inline-block text-xs text-accent underline">
-            Ir a Paper Trading →
-          </Link>
         </Card>
 
-        <Card title="Alertas Recientes">
+        <Card title="Mercados">
+          <div className="flex flex-col gap-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-300">Crypto</span>
+              <span className="font-mono text-slate-100">{assetClassCounts.CRYPTO ?? 0} activos</span>
+            </div>
+            <div className="flex items-center justify-between text-muted">
+              <span>Forex</span>
+              <span className="font-mono">{assetClassCounts.FOREX ?? 0} activos (próximamente)</span>
+            </div>
+            <div className="flex items-center justify-between text-muted">
+              <span>Metals</span>
+              <span className="font-mono">{assetClassCounts.METALS ?? 0} activos (próximamente)</span>
+            </div>
+          </div>
+          <Link href="/markets" className="mt-3 inline-block text-xs text-accent underline">
+            Ver mercados →
+          </Link>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card title="Actividad del Bot">
           {alerts.length === 0 ? (
-            <p className="text-sm text-muted">Aún no hay alertas.</p>
+            <p className="text-sm text-muted">Aún no hay actividad.</p>
           ) : (
             <div className="flex flex-col gap-2">
               {alerts.map((a) => (
                 <div key={a.id} className="flex items-start gap-2 text-xs">
-                  <Badge tone={verdictTone(a.severity)}>{tSeverity(a.severity)}</Badge>
+                  <span className="whitespace-nowrap font-mono text-muted">
+                    {a.createdAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <Badge tone={verdictTone(a.severity)}>{a.severity}</Badge>
                   <div>
                     <div className="font-medium text-slate-200">{a.title}</div>
                     <div className="text-muted">{a.message}</div>
@@ -183,11 +245,21 @@ export default async function DashboardPage() {
             </div>
           )}
         </Card>
+
+        <Card title="Riesgo Actual" subtitle="Drawdown y evolución de la cuenta">
+          <div className="grid grid-cols-2 gap-3">
+            <StatTile label="Drawdown" value={`${drawdown.current.toFixed(1)}%`} sublabel={`Máx: ${drawdown.max.toFixed(1)}%`} tone={drawdown.current > 10 ? "negative" : "neutral"} />
+            <StatTile label="Operaciones Cerradas" value={allTrades.length} />
+          </div>
+          <Link href="/risk" className="mt-3 inline-block text-xs text-accent underline">
+            Centro de Riesgo completo →
+          </Link>
+        </Card>
       </div>
 
       <Card title="Operaciones Recientes">
         {recentTrades.length === 0 ? (
-          <p className="text-sm text-muted">Aún no hay operaciones cerradas. Ejecuta un escaneo en Paper Trading para generar actividad.</p>
+          <p className="text-sm text-muted">Aún no hay operaciones cerradas.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">

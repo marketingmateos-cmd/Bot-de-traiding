@@ -118,6 +118,34 @@ implementation backs each one, based on env config. Every engine and every page 
 the interface. Adding a real provider later — CoinGecko, a news API, a real on-chain indexer — is
 a new class implementing the interface plus one line in the registry; nothing else changes.
 
+### Autonomous bot loop (`src/lib/botLoop.ts`, V3)
+
+The app no longer waits for a manual "scan" click. `src/instrumentation.ts` starts a self-scheduling
+loop once when the Node server boots (`register()` — [Next's instrumentation
+hook](https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation)); every
+`BotConfig.intervalSeconds` (default 60s, editable in the `BotConfig` row) it:
+
+1. Always ticks open positions (`positionLifecycle.tickPositions`) — mark-to-market P&L and
+   stop/take-profit closes happen even while the bot is paused, since managing risk on positions
+   already opened isn't "the bot deciding to trade."
+2. If `BotConfig.isActive` is `true` and nothing is blocking (trading not blocked, no tripped
+   circuit breaker): runs the full scan (`paperTradingEngine.runPaperTradingScan`) and opens a
+   paper position on an `APPROVED`/`LOW_CONFIDENCE` verdict. Finding nothing worth trading is a
+   valid, logged outcome (`WAITING`), not a failure — it never forces a trade to look busy.
+
+`BOT ON/OFF` is a plain boolean on `BotConfig`, flipped from Settings or the Dashboard's status
+card (`POST /api/bot/toggle`); `GET /api/bot/status` is what the Dashboard polls for the live
+status badge/countdown. **This only runs continuously on a persistent Node process** — the
+Electron desktop app and a Render/Railway deploy both qualify. A serverless deploy (Vercel) tears
+down the process between requests, so `setTimeout` can't survive there; that path would need a
+real external cron hitting an API route instead, which isn't wired up since the desktop app is the
+primary target.
+
+The `1-10` risk slider (`resolveRiskLimitsForLevel` in `riskEngine.ts`) is the real input to
+position sizing, max exposure, max open positions, and the daily-loss/drawdown circuit breakers —
+not a cosmetic label. Changing it only affects the *next* trade the bot opens; positions already
+open keep the size they were opened with.
+
 ### Engines (`src/lib/engines/`)
 
 Each spec module maps to one file: `dataQuality.ts`, `features.ts` (indicators), `regime.ts`,
@@ -206,8 +234,15 @@ rate and degrades to cache-only rather than ever crashing the app on quota exhau
 
 - **Real**: all indicator math, regime detection, backtest/walk-forward/Monte Carlo engines, risk
   sizing, fee/slippage simulation, the full Trade Gate, position state machine + reconciliation,
-  circuit breakers, post-mortem classification, strategy versioning, AI budget tracking. All of
-  it runs against a real PostgreSQL database via Prisma, not mocked.
+  circuit breakers, post-mortem classification, strategy versioning, AI budget tracking, and the
+  autonomous bot loop (above). All of it runs against a real database via Prisma (SQLite for local
+  dev, the desktop app, and Render; a generated Postgres schema for the Vercel deploy path — see
+  `scripts/generate-postgres-schema.mjs`), not mocked.
+- **Multi-asset (V3)**: `Asset.assetClass` (`CRYPTO` | `FOREX` | `METALS`) exists in the schema and
+  the Dashboard's "Mercados" card is already asset-class-aware, but only `CRYPTO` has an actual
+  provider/seeded assets today — Forex and Metals show "próximamente" rather than fabricated data.
+  Wiring a real Forex/Metals provider is additive against the existing `MarketDataProvider`
+  interface, same as swapping in a real crypto provider would be.
 - **Demo by design, labeled as such**: market/news/sentiment/on-chain data is synthetic
   (deterministic per symbol/timeframe, regime-switching random walk) because there are no live
   API keys in this environment — swapping in a real provider is additive, not a rewrite (see

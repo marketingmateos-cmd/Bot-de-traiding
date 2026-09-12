@@ -5,6 +5,8 @@ import {
   computeDrawdown,
   correlation,
   resolveRiskLimits,
+  resolveRiskLimitsForLevel,
+  riskPresetForLevel,
 } from "../riskEngine";
 
 describe("calculatePositionSize", () => {
@@ -65,6 +67,43 @@ describe("resolveRiskLimits", () => {
     const custom = resolveRiskLimits("CUSTOM", { riskPerTradePct: 5, maxOpenPositions: 10 });
     expect(custom.riskPerTradePct).toBe(5);
     expect(custom.maxOpenPositions).toBe(10);
+  });
+});
+
+describe("resolveRiskLimitsForLevel", () => {
+  it("produces strictly increasing risk-per-trade and exposure across all 10 levels", () => {
+    const limitsByLevel = Array.from({ length: 10 }, (_, i) => resolveRiskLimitsForLevel(i + 1));
+    for (let i = 1; i < limitsByLevel.length; i++) {
+      expect(limitsByLevel[i].riskPerTradePct).toBeGreaterThanOrEqual(limitsByLevel[i - 1].riskPerTradePct);
+      expect(limitsByLevel[i].maxExposurePct).toBeGreaterThanOrEqual(limitsByLevel[i - 1].maxExposurePct);
+    }
+    // level 1 must be meaningfully stricter than level 10 — not just relabeled
+    expect(limitsByLevel[0].riskPerTradePct).toBeLessThan(limitsByLevel[9].riskPerTradePct);
+    expect(limitsByLevel[0].maxOpenPositions).toBeLessThan(limitsByLevel[9].maxOpenPositions);
+  });
+
+  it("clamps out-of-range levels instead of extrapolating wildly", () => {
+    expect(resolveRiskLimitsForLevel(0)).toEqual(resolveRiskLimitsForLevel(1));
+    expect(resolveRiskLimitsForLevel(99)).toEqual(resolveRiskLimitsForLevel(10));
+  });
+
+  it("distinguishes adjacent levels — the dial is not decorative", () => {
+    const level4 = resolveRiskLimitsForLevel(4);
+    const level5 = resolveRiskLimitsForLevel(5);
+    expect(level4).not.toEqual(level5);
+  });
+});
+
+describe("riskPresetForLevel", () => {
+  it("maps levels to the documented preset bands", () => {
+    expect(riskPresetForLevel(1)).toBe("CONSERVATIVE");
+    expect(riskPresetForLevel(3)).toBe("CONSERVATIVE");
+    expect(riskPresetForLevel(4)).toBe("BALANCED");
+    expect(riskPresetForLevel(6)).toBe("BALANCED");
+    expect(riskPresetForLevel(7)).toBe("AGGRESSIVE");
+    expect(riskPresetForLevel(8)).toBe("AGGRESSIVE");
+    expect(riskPresetForLevel(9)).toBe("VERY_AGGRESSIVE");
+    expect(riskPresetForLevel(10)).toBe("VERY_AGGRESSIVE");
   });
 });
 

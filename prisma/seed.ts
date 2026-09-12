@@ -84,6 +84,13 @@ async function main() {
   }
   console.log(`Seeded ${breakerNames.length} circuit breakers (all untripped).`);
 
+  await prisma.botConfig.upsert({
+    where: { id: "main" },
+    update: {},
+    create: { id: "main", accountId: account.id, isActive: true, status: "WAITING", intervalSeconds: 60 },
+  });
+  console.log("Seeded bot config (active, 60s interval).");
+
   console.log("Seed complete.");
 }
 

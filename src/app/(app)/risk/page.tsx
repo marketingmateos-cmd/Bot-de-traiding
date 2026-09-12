@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { resolveRiskLimits, type RiskProfile } from "@/lib/engines/riskEngine";
+import { resolveRiskLimitsForLevel, riskPresetForLevel } from "@/lib/engines/riskEngine";
 import { Card } from "@/components/ui/Card";
 import { StatTile } from "@/components/ui/StatTile";
 import { CircuitBreakerList } from "@/components/settings/CircuitBreakerList";
@@ -13,8 +13,8 @@ export default async function RiskPage() {
   const breakers = await prisma.circuitBreaker.findMany({ orderBy: { name: "asc" } });
   const openPositions = await prisma.paperPosition.findMany({ where: { accountId: ACCOUNT_ID, status: { in: ["OPEN", "PARTIALLY_CLOSED"] } } });
 
-  const riskProfile = (account?.riskProfile ?? "BALANCED") as RiskProfile;
-  const limits = resolveRiskLimits(riskProfile);
+  const riskLevel = account?.riskLevel ?? 5;
+  const limits = resolveRiskLimitsForLevel(riskLevel);
   const equity = account?.cashBalance ?? 100;
   const exposure = openPositions.reduce((s, p) => s + p.entryPrice * p.remainingQuantity, 0);
   const exposurePct = equity > 0 ? (exposure / equity) * 100 : 0;
@@ -27,7 +27,7 @@ export default async function RiskPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatTile label="Perfil de Riesgo" value={tRiskProfile(riskProfile)} />
+        <StatTile label="Risk Level" value={`${riskLevel}/10`} sublabel={tRiskProfile(riskPresetForLevel(riskLevel))} />
         <StatTile label="Riesgo / Operación" value={`${limits.riskPerTradePct}%`} />
         <StatTile label="Exposición Máxima" value={`${limits.maxExposurePct}%`} sublabel={`Actual: ${exposurePct.toFixed(1)}%`} tone={exposurePct > limits.maxExposurePct ? "negative" : "neutral"} />
         <StatTile label="Máx. Posiciones Abiertas" value={limits.maxOpenPositions} sublabel={`Actual: ${openPositions.length}`} />

@@ -1,34 +1,61 @@
+// V3 redesign: the sidebar/mobile nav now shows only these 7 sections
+// (spec §2) instead of the previous 21 flat items. Nothing was deleted —
+// every old page still lives at its original route; SUB_NAV just groups
+// them so <SectionTabs> can render a tab strip at the top of each page
+// within a section, without the risk of moving/renaming route folders.
 export interface NavItem {
   href: string;
   label: string;
-  group: string;
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "Panel Principal", group: "Resumen" },
-  { href: "/markets", label: "Mercados", group: "Resumen" },
-  { href: "/intelligence", label: "Inteligencia Cripto", group: "Resumen" },
-  { href: "/news", label: "Noticias", group: "Resumen" },
-  { href: "/sentiment", label: "Sentimiento", group: "Resumen" },
-  { href: "/onchain", label: "On-Chain", group: "Resumen" },
-
-  { href: "/strategies", label: "Estrategias", group: "Trading" },
-  { href: "/paper-trading", label: "Paper Trading", group: "Trading" },
-  { href: "/portfolio", label: "Cartera", group: "Trading" },
-  { href: "/journal", label: "Diario de Operaciones", group: "Trading" },
-
-  { href: "/research", label: "Laboratorio de IA", group: "Investigación" },
-  { href: "/experiments", label: "Experimentos", group: "Investigación" },
-  { href: "/backtesting", label: "Backtesting", group: "Investigación" },
-  { href: "/walk-forward", label: "Walk Forward", group: "Investigación" },
-  { href: "/monte-carlo", label: "Monte Carlo", group: "Investigación" },
-  { href: "/robustness", label: "Laboratorio de Robustez", group: "Investigación" },
-
-  { href: "/risk", label: "Centro de Riesgo", group: "Gobernanza" },
-  { href: "/league", label: "Liga de Estrategias", group: "Gobernanza" },
-  { href: "/luck-vs-edge", label: "Suerte vs Ventaja", group: "Gobernanza" },
-  { href: "/system-health", label: "Salud del Sistema", group: "Gobernanza" },
-  { href: "/settings", label: "Ajustes", group: "Gobernanza" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/markets", label: "Markets" },
+  { href: "/paper-trading", label: "Positions" },
+  { href: "/strategies", label: "Strategies" },
+  { href: "/research", label: "Research" },
+  { href: "/backtesting", label: "Backtest" },
+  { href: "/settings", label: "Settings" },
 ];
 
-export const NAV_GROUPS = ["Resumen", "Trading", "Investigación", "Gobernanza"] as const;
+export const SUB_NAV: Record<string, NavItem[]> = {
+  "/paper-trading": [
+    { href: "/paper-trading", label: "Abiertas" },
+    { href: "/portfolio", label: "Cartera" },
+    { href: "/journal", label: "Diario" },
+  ],
+  "/strategies": [
+    { href: "/strategies", label: "Estrategias" },
+    { href: "/league", label: "Liga de Estrategias" },
+  ],
+  "/research": [
+    { href: "/research", label: "Laboratorio IA" },
+    { href: "/news", label: "Noticias" },
+    { href: "/sentiment", label: "Sentimiento" },
+    { href: "/onchain", label: "On-Chain" },
+    { href: "/intelligence", label: "Inteligencia" },
+    { href: "/experiments", label: "Experimentos" },
+  ],
+  "/backtesting": [
+    { href: "/backtesting", label: "Backtesting" },
+    { href: "/walk-forward", label: "Walk Forward" },
+    { href: "/monte-carlo", label: "Monte Carlo" },
+    { href: "/robustness", label: "Robustez" },
+  ],
+  "/settings": [
+    { href: "/settings", label: "Ajustes" },
+    { href: "/risk", label: "Riesgo" },
+    { href: "/system-health", label: "Salud del Sistema" },
+    { href: "/luck-vs-edge", label: "Suerte vs Ventaja" },
+  ],
+};
+
+/** Which section (if any) a given pathname's tab strip should show. */
+export function findSectionForPath(pathname: string): NavItem[] | null {
+  for (const items of Object.values(SUB_NAV)) {
+    if (items.some((item) => pathname === item.href || pathname.startsWith(item.href + "/"))) {
+      return items;
+    }
+  }
+  return null;
+}
