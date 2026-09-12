@@ -56,7 +56,13 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
   const openPositions = await prisma.paperPosition.findMany({
     where: { accountId, status: { in: ["OPEN", "PARTIALLY_CLOSED"] } },
   });
-  const openNotional = openPositions.reduce((sum, p) => sum + p.entryPrice * p.remainingQuantity, 0);
+  // `let`, not `const`: this is updated in-loop every time a new position
+  // opens during this same scan (see below), so exposure checks for
+  // subsequent candidates in the SAME cycle see the true, up-to-date
+  // notional rather than the snapshot taken before the loop started
+  // (Fase 1.A3 fix — previously stale, allowing exposure to silently
+  // compound past the intended limit within one scan).
+  let openNotional = openPositions.reduce((sum, p) => sum + p.entryPrice * p.remainingQuantity, 0);
   const equity = account.cashBalance; // realized-P&L based; unrealized handled by mark-to-market job
 
   const todayStart = new Date();
@@ -259,6 +265,7 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
           message: `${version.strategy.name} v${version.version} — ${signal.reason}`,
         });
         openPositions.push(opened.position);
+        openNotional += opened.position.entryPrice * opened.position.remainingQuantity;
       } else {
         await recordRejectedOrder({
           accountId,
