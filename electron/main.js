@@ -15,6 +15,7 @@ const isPackaged = app.isPackaged;
 const resourcesDir = isPackaged ? process.resourcesPath : path.join(__dirname, "..");
 const appDir = path.join(resourcesDir, "app"); // .next/standalone contents
 const serverScript = path.join(appDir, "server.js");
+const migrateScript = path.join(__dirname, "migrate.js");
 const templateDb = path.join(resourcesDir, "template.db");
 
 const userDataDir = app.getPath("userData");
@@ -68,8 +69,36 @@ function waitForServer(url, timeoutMs = 20000) {
   });
 }
 
-function startServer() {
+function runMigration() {
+  return new Promise((resolve, reject) => {
+    const migrateProcess = spawn(process.execPath, [migrateScript], {
+      cwd: appDir,
+      env: {
+        ...process.env,
+        ELECTRON_RUN_AS_NODE: "1",
+        APP_DIR: appDir,
+        DATABASE_URL: `file:${dbPath}`,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+
+    const logPath = path.join(userDataDir, "server.log");
+    const logStream = fs.createWriteStream(logPath, { flags: "a" });
+    migrateProcess.stdout.pipe(logStream);
+    migrateProcess.stderr.pipe(logStream);
+
+    migrateProcess.on("exit", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`La migración de la base de datos falló (código ${code}). Revisa server.log.`));
+    });
+    migrateProcess.on("error", reject);
+  });
+}
+
+async function startServer() {
   ensureDatabase();
+  await runMigration();
 
   serverProcess = spawn(process.execPath, [serverScript], {
     cwd: appDir,
@@ -101,7 +130,13 @@ function startServer() {
 }
 
 async function createWindow() {
-  startServer();
+  try {
+    await startServer();
+  } catch (err) {
+    dialog.showErrorBox("Crypto AI Trading Lab", `No se pudo preparar la base de datos: ${err.message}`);
+    app.quit();
+    return;
+  }
 
   try {
     await waitForServer(`http://127.0.0.1:${PORT}/dashboard`);

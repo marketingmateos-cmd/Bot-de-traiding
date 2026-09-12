@@ -11,18 +11,19 @@ export interface StrategyPerformanceStats {
   profitFactor: number | null;
 }
 
-/**
- * Pulls realized-trade performance for a strategy version straight from the
- * Trade Journal (paper trades only). This is what the AI Critic, Strategy
- * League, and Luck-vs-Edge screens consult instead of trusting a strategy's
- * self-reported backtest.
- */
-export async function getStrategyPerformanceStats(strategyVersionId: string): Promise<StrategyPerformanceStats> {
-  const trades = await prisma.trade.findMany({
-    where: { strategyVersionId },
-    orderBy: { closedAt: "asc" },
-  });
+interface TradeLike {
+  netPnl: number;
+  entryPrice: number;
+  quantity: number;
+}
 
+/**
+ * Pure win-rate/Sharpe/Sortino/profit-factor math over any list of closed
+ * trades — extracted so the Journal's per-asset/per-direction/per-risk-level
+ * breakdowns can reuse the exact same formulas as strategy performance
+ * instead of re-deriving them (and risking the two disagreeing).
+ */
+export function computeTradeStats(trades: TradeLike[]): StrategyPerformanceStats {
   if (trades.length === 0) {
     return { trades: 0, winRate: 0, avgReturnPct: 0, sharpe: null, sortino: null, maxDrawdownPct: 0, totalNetPnl: 0, profitFactor: null };
   }
@@ -59,4 +60,18 @@ export async function getStrategyPerformanceStats(strategyVersionId: string): Pr
   const totalNetPnl = trades.reduce((s, t) => s + t.netPnl, 0);
 
   return { trades: trades.length, winRate, avgReturnPct, sharpe, sortino, maxDrawdownPct, totalNetPnl, profitFactor };
+}
+
+/**
+ * Pulls realized-trade performance for a strategy version straight from the
+ * Trade Journal (paper trades only). This is what the AI Critic, Strategy
+ * League, and Luck-vs-Edge screens consult instead of trusting a strategy's
+ * self-reported backtest.
+ */
+export async function getStrategyPerformanceStats(strategyVersionId: string): Promise<StrategyPerformanceStats> {
+  const trades = await prisma.trade.findMany({
+    where: { strategyVersionId },
+    orderBy: { closedAt: "asc" },
+  });
+  return computeTradeStats(trades);
 }
