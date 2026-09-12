@@ -6,6 +6,7 @@ services:
     branch: claude/crypto-ai-trading-lab-fba1xa
     buildCommand: npm ci && npx prisma generate && npm run build:railway
     startCommand: npm run start:railway
+    healthCheckPath: /dashboard
     envVars:
       - key: DATABASE_URL
         value: file:/tmp/prod.db
