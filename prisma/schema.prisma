@@ -384,6 +384,7 @@ model PaperPosition {
   closedAt          DateTime?
   unrealizedPnl     Float         @default(0)
   realizedPnl       Float         @default(0)
+  riskLevelAtEntry  Int? // account's 1-10 risk dial at the moment this was opened — for the Journal's risk-bucket breakdown; null on positions opened before this field existed
   snapshot          String // reproducibility snapshot: indicators, regime, news, sentiment, AI analysis at entry
 
   trades       Trade[]
@@ -428,6 +429,7 @@ model Trade {
   durationSeconds   Int
   exitReason         String // STOP_LOSS, TAKE_PROFIT, SIGNAL, MANUAL, RISK, CIRCUIT_BREAKER
   marketRegime       String?
+  riskLevelAtEntry   Int? // copied from PaperPosition.riskLevelAtEntry at close time
   journalId          String?    @unique
   journal            TradeJournal?
   openedAt           DateTime

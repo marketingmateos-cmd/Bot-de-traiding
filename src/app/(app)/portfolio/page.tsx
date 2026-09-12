@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { getMarketDataProvider } from "@/lib/providers/registry";
 import { computeDrawdown } from "@/lib/engines/riskEngine";
 import { Card } from "@/components/ui/Card";
 import { StatTile } from "@/components/ui/StatTile";
@@ -23,12 +24,23 @@ export default async function PortfolioPage() {
   }
   const drawdown = computeDrawdown(equityCurve.map((e) => e.equity));
 
+  // Live current-price fetch (same approach as Dashboard/Journal) so the
+  // unrealized P&L — and therefore total equity — matches exactly across
+  // every screen instead of drifting from whatever the last bot tick wrote.
+  const marketProvider = getMarketDataProvider();
+  const livePrices = await Promise.all(openPositions.map((p) => marketProvider.getLatestPrice(p.asset.symbol)));
+  const positionsWithLive = openPositions.map((p, i) => {
+    const currentPrice = livePrices[i]?.price ?? p.entryPrice;
+    const sign = p.direction === "LONG" ? 1 : -1;
+    return { ...p, currentPrice, unrealizedPnl: sign * (currentPrice - p.entryPrice) * p.remainingQuantity };
+  });
+
   const realizedPnl = trades.reduce((s, t) => s + t.netPnl, 0);
   const totalFees = trades.reduce((s, t) => s + t.fees, 0);
   const totalSlippage = trades.reduce((s, t) => s + t.slippageCost, 0);
-  const unrealizedPnl = openPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
+  const unrealizedPnl = positionsWithLive.reduce((s, p) => s + p.unrealizedPnl, 0);
   const exposure = openPositions.reduce((s, p) => s + p.entryPrice * p.remainingQuantity, 0);
-  const equity = account?.cashBalance ?? startingBalance;
+  const equity = (account?.cashBalance ?? startingBalance) + unrealizedPnl;
 
   return (
     <div className="flex flex-col gap-5">
@@ -38,7 +50,7 @@ export default async function PortfolioPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatTile label="Balance (efectivo)" value={`€${equity.toFixed(2)}`} />
+        <StatTile label="Equity" value={`€${equity.toFixed(2)}`} sublabel={`Efectivo: €${(account?.cashBalance ?? startingBalance).toFixed(2)}`} />
         <StatTile label="P&L Realizado" value={`€${realizedPnl.toFixed(2)}`} tone={realizedPnl >= 0 ? "positive" : "negative"} />
         <StatTile label="P&L No Realizado" value={`€${unrealizedPnl.toFixed(2)}`} tone={unrealizedPnl >= 0 ? "positive" : "negative"} />
         <StatTile label="Exposición" value={`€${exposure.toFixed(2)}`} sublabel={`${((exposure / Math.max(1, equity)) * 100).toFixed(0)}% del equity`} />
@@ -57,7 +69,7 @@ export default async function PortfolioPage() {
           <p className="text-sm text-muted">No hay posiciones abiertas.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {openPositions.map((p) => (
+            {positionsWithLive.map((p) => (
               <div key={p.id} className="flex items-center justify-between rounded border border-bg-border bg-black/20 px-3 py-2 text-xs">
                 <span className="font-medium">{p.asset.symbol}</span>
                 <Badge tone={p.direction === "LONG" ? "success" : "danger"}>{tDirection(p.direction)}</Badge>

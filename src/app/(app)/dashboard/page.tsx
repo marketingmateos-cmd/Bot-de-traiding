@@ -61,6 +61,8 @@ export default async function DashboardPage() {
   const todaysTrades = allTrades.filter((t) => t.closedAt >= todayStart);
   const todayRealizedPnl = todaysTrades.reduce((s, t) => s + t.netPnl, 0);
   const todayPnl = todayRealizedPnl + unrealizedPnl;
+  const todayWins = todaysTrades.filter((t) => t.netPnl > 0).length;
+  const todayWinRate = todaysTrades.length ? (todayWins / todaysTrades.length) * 100 : 0;
 
   const riskLevel = account?.riskLevel ?? 5;
 
@@ -121,6 +123,22 @@ export default async function DashboardPage() {
       )}
 
       <BotStatusCard marketsMonitored={assets.length} />
+
+      <Card
+        title="Today"
+        actions={
+          <Link href="/journal" className="rounded border border-bg-border px-3 py-1.5 text-xs text-slate-200 hover:bg-white/5">
+            VIEW JOURNAL
+          </Link>
+        }
+      >
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatTile label="P&L" value={`${todayPnl >= 0 ? "+" : ""}€${todayPnl.toFixed(2)}`} tone={todayPnl >= 0 ? "positive" : "negative"} />
+          <StatTile label="Trades" value={todaysTrades.length} />
+          <StatTile label="Win Rate" value={todaysTrades.length ? `${todayWinRate.toFixed(0)}%` : "—"} />
+          <StatTile label="Drawdown" value={`${drawdown.current.toFixed(1)}%`} tone={drawdown.current > 10 ? "negative" : "neutral"} />
+        </div>
+      </Card>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
         <StatTile label="Equity" value={`€${equity.toFixed(2)}`} sublabel={`Inicio: €${(account?.startingBalance ?? 100).toFixed(2)}`} />

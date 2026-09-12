@@ -41,6 +41,16 @@ async function main() {
       await prisma.$executeRawUnsafe(`ALTER TABLE "PaperAccount" ADD COLUMN "riskLevel" INTEGER NOT NULL DEFAULT 5`);
     }
 
+    if (!(await columnExists(prisma, "PaperPosition", "riskLevelAtEntry"))) {
+      console.log("[migrate] adding PaperPosition.riskLevelAtEntry");
+      await prisma.$executeRawUnsafe(`ALTER TABLE "PaperPosition" ADD COLUMN "riskLevelAtEntry" INTEGER`);
+    }
+
+    if (!(await columnExists(prisma, "Trade", "riskLevelAtEntry"))) {
+      console.log("[migrate] adding Trade.riskLevelAtEntry");
+      await prisma.$executeRawUnsafe(`ALTER TABLE "Trade" ADD COLUMN "riskLevelAtEntry" INTEGER`);
+    }
+
     if (!(await tableExists(prisma, "BotConfig"))) {
       console.log("[migrate] creating BotConfig");
       await prisma.$executeRawUnsafe(`CREATE TABLE "BotConfig" (

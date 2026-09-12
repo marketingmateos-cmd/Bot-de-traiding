@@ -66,6 +66,7 @@ export interface OpenPositionInput {
   trailingStopPct: number | null;
   feeBps: number;
   slippageBps: number;
+  riskLevelAtEntry: number;
   gateResult: unknown;
   snapshot: unknown;
 }
@@ -125,6 +126,7 @@ export async function openPosition(input: OpenPositionInput) {
         stopLoss: input.stopLoss,
         takeProfit: input.takeProfit,
         trailingStopPct: input.trailingStopPct,
+        riskLevelAtEntry: input.riskLevelAtEntry,
         snapshot: toJson(input.snapshot),
       },
     });
@@ -232,6 +234,7 @@ export async function closePosition(input: ClosePositionInput) {
         mfe: input.mfe,
         durationSeconds,
         exitReason: input.reason,
+        riskLevelAtEntry: position.riskLevelAtEntry,
         openedAt: position.openedAt,
         closedAt: new Date(),
       },

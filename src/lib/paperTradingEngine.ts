@@ -247,6 +247,7 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
           trailingStopPct: version.trailingStopPct ?? strategyDef.defaultTrailingStopPct,
           feeBps: strategyDef.costModel.feeBps,
           slippageBps: strategyDef.costModel.slippageBps,
+          riskLevelAtEntry: account.riskLevel,
           gateResult: gate.steps,
           snapshot,
         });

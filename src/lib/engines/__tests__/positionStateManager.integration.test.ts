@@ -47,6 +47,7 @@ describe("positionStateManager — openPosition / closePosition", () => {
       trailingStopPct: null,
       feeBps: 10,
       slippageBps: 5,
+      riskLevelAtEntry: 5,
       gateResult: { note: "test" },
       snapshot: { note: "test" },
     });
@@ -79,6 +80,7 @@ describe("positionStateManager — openPosition / closePosition", () => {
       trailingStopPct: null,
       feeBps: 10,
       slippageBps: 5,
+      riskLevelAtEntry: 5,
       gateResult: {},
       snapshot: {},
     });
@@ -120,6 +122,7 @@ describe("positionStateManager — openPosition / closePosition", () => {
       trailingStopPct: null,
       feeBps: 10,
       slippageBps: 5,
+      riskLevelAtEntry: 5,
       gateResult: {},
       snapshot: {},
     });
@@ -145,6 +148,7 @@ describe("positionStateManager — transitionPosition state machine", () => {
       trailingStopPct: null,
       feeBps: 10,
       slippageBps: 5,
+      riskLevelAtEntry: 5,
       gateResult: {},
       snapshot: {},
     });
@@ -166,6 +170,7 @@ describe("positionStateManager — transitionPosition state machine", () => {
       trailingStopPct: null,
       feeBps: 10,
       slippageBps: 5,
+      riskLevelAtEntry: 5,
       gateResult: {},
       snapshot: {},
     });
@@ -196,6 +201,7 @@ describe("positionStateManager — reconciliation", () => {
       trailingStopPct: null,
       feeBps: 10,
       slippageBps: 5,
+      riskLevelAtEntry: 5,
       gateResult: {},
       snapshot: {},
     });
@@ -211,6 +217,7 @@ describe("positionStateManager — reconciliation", () => {
       trailingStopPct: null,
       feeBps: 10,
       slippageBps: 5,
+      riskLevelAtEntry: 5,
       gateResult: {},
       snapshot: {},
     });

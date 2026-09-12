@@ -12,6 +12,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/markets", label: "Markets" },
   { href: "/paper-trading", label: "Positions" },
+  { href: "/journal", label: "Journal" },
   { href: "/strategies", label: "Strategies" },
   { href: "/research", label: "Research" },
   { href: "/backtesting", label: "Backtest" },
@@ -22,7 +23,6 @@ export const SUB_NAV: Record<string, NavItem[]> = {
   "/paper-trading": [
     { href: "/paper-trading", label: "Abiertas" },
     { href: "/portfolio", label: "Cartera" },
-    { href: "/journal", label: "Diario" },
   ],
   "/strategies": [
     { href: "/strategies", label: "Estrategias" },
