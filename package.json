@@ -19,9 +19,9 @@
     "db:studio": "prisma studio",
     "desktop:prepare": "next build && node scripts/prepare-desktop.mjs",
     "desktop:dev": "electron .",
-    "desktop:build:win": "npm run desktop:prepare && electron-builder --win --x64",
-    "desktop:build:linux": "npm run desktop:prepare && electron-builder --linux --x64",
-    "desktop:build:mac": "npm run desktop:prepare && electron-builder --mac --x64"
+    "desktop:build:win": "npm run desktop:prepare && electron-builder --win --x64 --publish=never",
+    "desktop:build:linux": "npm run desktop:prepare && electron-builder --linux --x64 --publish=never",
+    "desktop:build:mac": "npm run desktop:prepare && electron-builder --mac --x64 --publish=never"
   },
   "build": {
     "appId": "com.cryptoaitradinglab.desktop",
