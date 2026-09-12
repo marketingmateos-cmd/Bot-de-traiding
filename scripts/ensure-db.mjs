@@ -1,11 +1,16 @@
-// Runs once when the production server (e.g. on Railway) boots: makes sure
-// the SQLite database at DATABASE_URL has the current schema, and seeds it
-// with demo data only the very first time (when it's empty) — never on
-// later restarts/deploys, so real paper-trading history is never touched.
+// Makes sure the database at DATABASE_URL has the current schema, and seeds
+// it with demo data only the very first time (when it's empty) — never on
+// later restarts/redeploys, so real paper-trading history is never touched.
+// Runs at server boot on Railway; on Vercel (no persistent boot step, just
+// serverless functions) it's run as part of the build instead — pass the
+// schema file to use as the first argument (prisma/schema.postgres.prisma
+// there, since Vercel has no filesystem for the default SQLite schema).
 import { execSync } from "node:child_process";
 import { PrismaClient } from "@prisma/client";
 
-execSync("npx prisma db push --skip-generate --accept-data-loss", {
+const schemaArg = process.argv[2] ? `--schema=${process.argv[2]}` : "";
+
+execSync(`npx prisma db push --skip-generate --accept-data-loss ${schemaArg}`, {
   stdio: "inherit",
   env: process.env,
 });

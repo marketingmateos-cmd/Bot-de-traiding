@@ -50,3 +50,6 @@ prisma/*.db-journal
 # desktop packaging output
 /dist-desktop
 /build-resources/template.db
+
+# generated at build time for the Vercel deploy — see scripts/generate-postgres-schema.mjs
+/prisma/schema.postgres.prisma
