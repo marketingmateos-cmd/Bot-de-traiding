@@ -8,6 +8,7 @@ const { app, BrowserWindow, shell, dialog } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
+const os = require("node:os");
 const { spawn } = require("node:child_process");
 
 const isPackaged = app.isPackaged;
@@ -18,10 +19,29 @@ const templateDb = path.join(resourcesDir, "template.db");
 
 const userDataDir = app.getPath("userData");
 const dbPath = path.join(userDataDir, "crypto-ai-trading-lab.db");
-const PORT = 47821; // fixed local port; only ever bound to 127.0.0.1
+const PORT = 47821;
+// The server listens on every network interface (not just loopback) so
+// other devices on the same WiFi/LAN — e.g. a phone — can open
+// http://<this-PC's-LAN-IP>:47821/dashboard directly, no internet hosting
+// needed. The Electron window itself still always talks to its own server
+// via 127.0.0.1, which works regardless of this setting.
+const LISTEN_HOST = "0.0.0.0";
 
 let serverProcess = null;
 let mainWindow = null;
+
+function getLanUrls() {
+  const interfaces = os.networkInterfaces();
+  const urls = [];
+  for (const addrs of Object.values(interfaces)) {
+    for (const addr of addrs ?? []) {
+      if (addr.family === "IPv4" && !addr.internal) {
+        urls.push(`http://${addr.address}:${PORT}/dashboard`);
+      }
+    }
+  }
+  return urls;
+}
 
 function ensureDatabase() {
   if (!fs.existsSync(dbPath)) {
@@ -58,7 +78,7 @@ function startServer() {
       ELECTRON_RUN_AS_NODE: "1",
       NODE_ENV: "production",
       PORT: String(PORT),
-      HOSTNAME: "127.0.0.1",
+      HOSTNAME: LISTEN_HOST,
       DATABASE_URL: `file:${dbPath}`,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -105,6 +125,20 @@ async function createWindow() {
   });
 
   mainWindow.loadURL(`http://127.0.0.1:${PORT}/dashboard`);
+
+  const lanUrls = getLanUrls();
+  if (lanUrls.length > 0) {
+    dialog.showMessageBox(mainWindow, {
+      type: "info",
+      title: "Abrir en el móvil",
+      message: "Para abrir esta app en tu móvil (misma WiFi que este PC):",
+      detail:
+        lanUrls.join("\n") +
+        "\n\nAbre esa dirección en Safari/Chrome del móvil y usa \"Añadir a pantalla de inicio\". " +
+        "Si el móvil no conecta, puede que el Firewall de Windows te haya preguntado al abrir esta app — dale a \"Permitir acceso\".",
+      buttons: ["Entendido"],
+    });
+  }
 
   // Open any external link (e.g. a future "docs" link) in the OS browser
   // instead of navigating the app window away from localhost.
