@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: crypto-ai-trading-lab
+    runtime: node
+    plan: free
+    branch: claude/crypto-ai-trading-lab-fba1xa
+    buildCommand: npm ci && npx prisma generate && npm run build:railway
+    startCommand: npm run start:railway
+    envVars:
+      - key: DATABASE_URL
+        value: file:/tmp/prod.db
+      - key: NODE_ENV
+        value: production
+      - key: MARKET_DATA_PROVIDER
+        value: demo
+      - key: NEWS_PROVIDER
+        value: demo
+      - key: SENTIMENT_PROVIDER
+        value: demo
+      - key: ONCHAIN_PROVIDER
+        value: demo
+      - key: DEFAULT_RISK_PROFILE
+        value: BALANCED
