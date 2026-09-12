@@ -3,6 +3,8 @@ import { getStrategyPerformanceStats } from "@/lib/engines/strategyStats";
 import { Card } from "@/components/ui/Card";
 import { Badge, regimeTone } from "@/components/ui/Badge";
 import { tRegime, tStrategyKind } from "@/lib/i18n";
+import { fromJson } from "@/lib/json";
+import type { Regime } from "@/lib/engines/regime";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,7 @@ export default async function StrategiesPage() {
           <Card key={v.id} title={`${v.strategy.name} — v${v.version}`} subtitle={tStrategyKind(v.strategy.kind)}>
             <div className="mb-3 flex flex-wrap gap-1.5">
               <Badge tone="info">{v.timeframe}</Badge>
-              {(v.recommendedRegimes as string[]).map((r) => (
+              {fromJson<Regime[]>(v.recommendedRegimes, []).map((r) => (
                 <Badge key={r} tone={regimeTone(r)}>{tRegime(r)}</Badge>
               ))}
             </div>
@@ -41,7 +43,7 @@ export default async function StrategiesPage() {
               </div>
               <div>
                 <div className="text-muted">Costes</div>
-                <div className="font-mono">{(v.costModel as { feeBps: number }).feeBps}pb comisión</div>
+                <div className="font-mono">{fromJson<{ feeBps: number }>(v.costModel, { feeBps: 0 }).feeBps}pb comisión</div>
               </div>
             </div>
             <div className="mt-3 border-t border-bg-border pt-3 text-xs">
@@ -56,7 +58,7 @@ export default async function StrategiesPage() {
             <details className="mt-3 text-xs">
               <summary className="cursor-pointer text-accent">Parámetros</summary>
               <pre className="mt-2 overflow-x-auto rounded bg-black/30 p-2 font-mono text-[11px] text-slate-300">
-                {JSON.stringify(v.parameters, null, 2)}
+                {JSON.stringify(fromJson(v.parameters, {}), null, 2)}
               </pre>
             </details>
           </Card>

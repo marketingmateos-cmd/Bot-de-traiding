@@ -5,6 +5,7 @@ import { getMarketDataProvider } from "@/lib/providers/registry";
 import { runWalkForward } from "@/lib/engines/walkForward";
 import { detectOverfitting } from "@/lib/engines/overfitting";
 import { runBacktest } from "@/lib/engines/backtest";
+import { toJson } from "@/lib/json";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
@@ -29,13 +30,13 @@ export async function POST(request: Request) {
       data: {
         strategyVersionId: strategyVersion.id,
         kind: "WALK_FORWARD",
-        assetSymbols: [symbol],
+        assetSymbols: toJson([symbol]),
         timeframe: def.timeframe,
         startDate: marketResult.bars[0]?.timestamp ?? new Date(),
         endDate: marketResult.bars[marketResult.bars.length - 1]?.timestamp ?? new Date(),
-        costModel: def.costModel,
+        costModel: toJson(def.costModel),
         status: "DONE",
-        summary: { wf, overfitting } as object,
+        summary: toJson({ wf, overfitting }),
         completedAt: new Date(),
       },
     });
@@ -45,9 +46,9 @@ export async function POST(request: Request) {
           backtestId: backtest.id,
           assetId: asset.id,
           windowLabel: `wf-${w.windowIndex}`,
-          metrics: { train: w.trainMetrics, oos: w.oosMetrics, degraded: w.degraded } as object,
-          equityCurve: [] as object,
-          trades: [] as object,
+          metrics: toJson({ train: w.trainMetrics, oos: w.oosMetrics, degraded: w.degraded }),
+          equityCurve: toJson([]),
+          trades: toJson([]),
         },
       });
     }

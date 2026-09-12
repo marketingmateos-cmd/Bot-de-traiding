@@ -1,8 +1,14 @@
 import { prisma } from "@/lib/db";
-import type { Direction, PositionStatus } from "@prisma/client";
 import { simulateFill } from "./paperExecution";
 import { logAudit } from "./auditLog";
 import { createSystemAlert } from "./alerts";
+import { toJson } from "@/lib/json";
+
+// Direction / PositionStatus used to be native Prisma enums under Postgres;
+// SQLite has no enum type, so the DB columns are plain strings and these
+// unions are the TypeScript-side source of truth instead.
+type Direction = "LONG" | "SHORT";
+type PositionStatus = "FLAT" | "PENDING" | "OPEN" | "PARTIALLY_CLOSED" | "CLOSED" | "ERROR";
 
 /**
  * Position State Manager (spec §19) — THE single source of truth for
@@ -33,7 +39,7 @@ export async function transitionPosition(
     const position = await tx.paperPosition.findUnique({ where: { id: positionId } });
     if (!position) throw new Error(`Position ${positionId} not found`);
 
-    const allowed = VALID_TRANSITIONS[position.status];
+    const allowed = VALID_TRANSITIONS[position.status as PositionStatus];
     if (!allowed.includes(toStatus)) {
       throw new InvalidTransitionError(
         `Illegal transition ${position.status} -> ${toStatus} for position ${positionId}`
@@ -81,7 +87,7 @@ export async function openPosition(input: OpenPositionInput) {
         requestedPrice: input.requestedPrice,
         quantity: input.quantity,
         status: "PENDING",
-        gateResult: input.gateResult as object,
+        gateResult: toJson(input.gateResult),
       },
     });
 
@@ -119,7 +125,7 @@ export async function openPosition(input: OpenPositionInput) {
         stopLoss: input.stopLoss,
         takeProfit: input.takeProfit,
         trailingStopPct: input.trailingStopPct,
-        snapshot: input.snapshot as object,
+        snapshot: toJson(input.snapshot),
       },
     });
 
@@ -163,7 +169,7 @@ export async function recordRejectedOrder(input: RejectedOrderInput) {
       requestedPrice: input.requestedPrice,
       quantity: input.quantity,
       status: input.status,
-      gateResult: input.gateResult as object,
+      gateResult: toJson(input.gateResult),
     },
   });
 }
@@ -234,13 +240,14 @@ export async function closePosition(input: ClosePositionInput) {
     await tx.tradeJournal.create({
       data: {
         tradeId: trade.id,
-        signalSnapshot: position.snapshot as object,
-        indicators: (input.journalExtras?.indicators ?? {}) as object,
-        news: (input.journalExtras?.news ?? []) as object,
-        sentiment: (input.journalExtras?.sentiment ?? {}) as object,
-        onChain: (input.journalExtras?.onChain ?? {}) as object,
-        aiAnalysis: input.journalExtras?.aiAnalysis as object | undefined,
-        aiCritic: input.journalExtras?.aiCritic as object | undefined,
+        // position.snapshot is already a JSON string (see openPosition above) — copy as-is.
+        signalSnapshot: position.snapshot,
+        indicators: toJson(input.journalExtras?.indicators ?? {}),
+        news: toJson(input.journalExtras?.news ?? []),
+        sentiment: toJson(input.journalExtras?.sentiment ?? {}),
+        onChain: toJson(input.journalExtras?.onChain ?? {}),
+        aiAnalysis: input.journalExtras?.aiAnalysis !== undefined ? toJson(input.journalExtras.aiAnalysis) : undefined,
+        aiCritic: input.journalExtras?.aiCritic !== undefined ? toJson(input.journalExtras.aiCritic) : undefined,
         riskScore: input.journalExtras?.riskScore,
       },
     });

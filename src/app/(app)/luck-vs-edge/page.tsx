@@ -4,6 +4,7 @@ import { assessEvidence } from "@/lib/engines/luckVsEdge";
 import { Card } from "@/components/ui/Card";
 import { Badge, verdictTone } from "@/components/ui/Badge";
 import { tEvidenceLevel, tVerdict } from "@/lib/i18n";
+import { fromJson } from "@/lib/json";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export default async function LuckVsEdgePage() {
     versions.map(async (v) => {
       const stats = await getStrategyPerformanceStats(v.id);
       const latestRobustness = await prisma.backtest.findFirst({ where: { strategyVersionId: v.id, kind: "ROBUSTNESS" }, orderBy: { createdAt: "desc" } });
-      const summary = latestRobustness?.summary as { robustness?: { score: number } } | null;
+      const summary = fromJson<{ robustness?: { score: number } } | null>(latestRobustness?.summary, null);
       const evidence = assessEvidence(stats, { robustnessScore: summary?.robustness?.score ?? null });
       return { name: `${v.strategy.name} v${v.version}`, stats, evidence };
     })

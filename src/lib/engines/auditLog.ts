@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { toJson } from "@/lib/json";
 
 export interface AuditLogInput {
   userId?: string | null;
@@ -16,7 +17,7 @@ export async function logAudit(input: AuditLogInput) {
       action: input.action,
       entity: input.entity,
       entityId: input.entityId ?? null,
-      data: (input.data ?? null) as object | undefined,
+      data: input.data !== undefined ? toJson(input.data) : undefined,
     },
   });
 }

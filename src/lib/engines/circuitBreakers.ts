@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { createSystemAlert } from "./alerts";
 import { logAudit } from "./auditLog";
+import { toJson } from "@/lib/json";
 
 /**
  * Circuit Breakers (spec §22). Independent emergency mechanisms that block
@@ -90,7 +91,7 @@ export async function evaluateCircuitBreakers(ctx: CircuitBreakerCheckContext) {
         create: {
           name: breaker.name,
           kind: breaker.kind,
-          threshold: {},
+          threshold: toJson({}),
           isTripped: true,
           trippedAt: new Date(),
           trippedReason: result.reason,

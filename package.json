@@ -2,6 +2,7 @@
   "name": "crypto-ai-trading-lab",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "setup": "bash scripts/setup.sh",
     "dev": "next dev",
@@ -15,7 +16,46 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "desktop:prepare": "next build && node scripts/prepare-desktop.mjs",
+    "desktop:dev": "electron .",
+    "desktop:build:win": "npm run desktop:prepare && electron-builder --win --x64",
+    "desktop:build:linux": "npm run desktop:prepare && electron-builder --linux --x64",
+    "desktop:build:mac": "npm run desktop:prepare && electron-builder --mac --x64"
+  },
+  "build": {
+    "appId": "com.cryptoaitradinglab.desktop",
+    "productName": "Crypto AI Trading Lab",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": ".next/standalone", "to": "app", "filter": ["**/*", "!node_modules"] },
+      { "from": ".next/standalone/node_modules", "to": "app/node_modules" },
+      { "from": "build-resources/template.db", "to": "template.db" }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build-resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Finance"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.finance"
+    }
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.32.1",
@@ -37,6 +77,8 @@
     "@types/react-dom": "18.3.1",
     "autoprefixer": "10.4.20",
     "dotenv": "^16.4.5",
+    "electron": "^32.3.3",
+    "electron-builder": "^26.15.3",
     "eslint": "8.57.1",
     "eslint-config-next": "15.5.25",
     "postcss": "8.4.47",

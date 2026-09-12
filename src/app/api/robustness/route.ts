@@ -9,6 +9,7 @@ import { computeRobustnessScore } from "@/lib/engines/robustness";
 import { detectOverfitting } from "@/lib/engines/overfitting";
 import { SUPPORTED_ASSETS } from "@/lib/env";
 import { mulberry32 } from "@/lib/providers/market-data/seeded-random";
+import { toJson } from "@/lib/json";
 
 function jitterParams(params: StrategyParams, rand: () => number): StrategyParams {
   const out: StrategyParams = {};
@@ -72,13 +73,13 @@ export async function POST(request: Request) {
       data: {
         strategyVersionId: strategyVersion.id,
         kind: "ROBUSTNESS",
-        assetSymbols: [symbol, ...otherSymbols],
+        assetSymbols: toJson([symbol, ...otherSymbols]),
         timeframe: def.timeframe,
         startDate: primaryResult.bars[0]?.timestamp ?? new Date(),
         endDate: primaryResult.bars[primaryResult.bars.length - 1]?.timestamp ?? new Date(),
-        costModel: def.costModel,
+        costModel: toJson(def.costModel),
         status: "DONE",
-        summary: { robustness, overfitting, parameterPerturbationReturns, crossAssetReturns, costSensitivityReturns } as object,
+        summary: toJson({ robustness, overfitting, parameterPerturbationReturns, crossAssetReturns, costSensitivityReturns }),
         completedAt: new Date(),
       },
     });

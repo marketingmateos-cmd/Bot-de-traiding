@@ -11,8 +11,9 @@ import { getStrategyPerformanceStats } from "@/lib/engines/strategyStats";
 import { assessEvidence } from "@/lib/engines/luckVsEdge";
 import { createSystemAlert } from "@/lib/engines/alerts";
 import { logAudit } from "@/lib/engines/auditLog";
-import type { AIAnalystInput } from "@/lib/providers/types";
+import type { AIAnalystInput, TimeframeCode } from "@/lib/providers/types";
 import type { Regime } from "@/lib/engines/regime";
+import { fromJson, toJson } from "@/lib/json";
 
 export interface ScanCandidateResult {
   symbol: string;
@@ -84,16 +85,18 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
     if (!strategyDef) continue;
 
     for (const asset of assets) {
-      const allowedMarkets = version.allowedMarkets as string[];
+      const allowedMarkets = fromJson<string[]>(version.allowedMarkets, []);
       if (allowedMarkets.length > 0 && !allowedMarkets.includes(asset.symbol)) continue;
 
-      const analysis = await getSymbolAnalysis(asset.symbol, version.timeframe);
+      const timeframe = version.timeframe as TimeframeCode;
+      const analysis = await getSymbolAnalysis(asset.symbol, timeframe);
       if (!analysis.features) continue;
 
       const existingPosition = openPositions.find((p) => p.assetId === asset.id && p.strategyVersionId === version.id);
       if (existingPosition) continue;
 
-      const signal = strategyDef.evaluate(analysis.bars, analysis.features, version.parameters as Record<string, number | string | boolean>, analysis.regime.regime);
+      const versionParams = fromJson<Record<string, number | string | boolean>>(version.parameters, {});
+      const signal = strategyDef.evaluate(analysis.bars, analysis.features, versionParams, analysis.regime.regime);
 
       const breakers = await evaluateCircuitBreakers({
         accountId,
@@ -138,7 +141,7 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
 
       const analystInput: AIAnalystInput = {
         symbol: asset.symbol,
-        timeframe: version.timeframe,
+        timeframe,
         regime: analysis.regime.regime,
         indicators: {
           trend: analysis.features.trend,
@@ -176,8 +179,8 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
             kind: "ANALYST",
             assetId: asset.id,
             strategyVersionId: version.id,
-            input: analystInput as object,
-            output: analystResult.output as object,
+            input: toJson(analystInput),
+            output: toJson(analystResult.output),
             model: analystResult.model,
             tokensIn: analystResult.tokensIn,
             tokensOut: analystResult.tokensOut,
@@ -187,8 +190,8 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
             kind: "CRITIC",
             assetId: asset.id,
             strategyVersionId: version.id,
-            input: { analyst: analystResult.output } as object,
-            output: criticResult.output as object,
+            input: toJson({ analyst: analystResult.output }),
+            output: toJson(criticResult.output),
             model: criticResult.model,
             tokensIn: criticResult.tokensIn,
             tokensOut: criticResult.tokensOut,
@@ -200,7 +203,7 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
         dataQuality: analysis.dataQuality,
         marketHealthy: true,
         regime: analysis.regime,
-        recommendedRegimes: version.recommendedRegimes as Regime[],
+        recommendedRegimes: fromJson<Regime[]>(version.recommendedRegimes, []),
         strategySignal: signal,
         news: analysis.news,
         sentiment: analysis.sentiment,
@@ -221,7 +224,7 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
         onChain: analysis.onChain,
         aiAnalysis: analystResult.output,
         aiCritic: criticResult.output,
-        strategyParams: version.parameters,
+        strategyParams: versionParams,
       };
 
       // LOW_CONFIDENCE still executes — at half size — so a brand-new

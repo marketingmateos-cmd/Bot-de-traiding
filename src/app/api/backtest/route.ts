@@ -5,6 +5,7 @@ import { getMarketDataProvider } from "@/lib/providers/registry";
 import { runBacktest } from "@/lib/engines/backtest";
 import { computeBuyAndHold, compareToBenchmark } from "@/lib/engines/benchmark";
 import { detectOverfitting } from "@/lib/engines/overfitting";
+import { toJson } from "@/lib/json";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
@@ -38,13 +39,13 @@ export async function POST(request: Request) {
       data: {
         strategyVersionId: strategyVersion.id,
         kind: "SIMPLE",
-        assetSymbols: [symbol],
+        assetSymbols: toJson([symbol]),
         timeframe: def.timeframe,
         startDate: marketResult.bars[0]?.timestamp ?? new Date(),
         endDate: marketResult.bars[marketResult.bars.length - 1]?.timestamp ?? new Date(),
-        costModel: def.costModel,
+        costModel: toJson(def.costModel),
         status: "DONE",
-        summary: { metrics: result.metrics, benchmark, comparison, overfitting } as object,
+        summary: toJson({ metrics: result.metrics, benchmark, comparison, overfitting }),
         completedAt: new Date(),
       },
     });
@@ -53,9 +54,9 @@ export async function POST(request: Request) {
         backtestId: backtest.id,
         assetId: asset.id,
         windowLabel: "full",
-        metrics: result.metrics as object,
-        equityCurve: result.equityCurve as object,
-        trades: result.trades as object,
+        metrics: toJson(result.metrics),
+        equityCurve: toJson(result.equityCurve),
+        trades: toJson(result.trades),
       },
     });
     backtestId = backtest.id;

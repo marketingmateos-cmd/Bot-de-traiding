@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { toJson } from "@/lib/json";
 
 export interface SystemAlertInput {
   kind: string;
@@ -16,7 +17,7 @@ export async function createSystemAlert(input: SystemAlertInput) {
       severity: input.severity,
       title: input.title,
       message: input.message,
-      data: (input.data ?? null) as object | undefined,
+      data: input.data !== undefined ? toJson(input.data) : undefined,
     },
   });
 }

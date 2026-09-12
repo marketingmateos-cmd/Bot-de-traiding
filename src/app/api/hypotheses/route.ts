@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { getStrategyById } from "@/lib/engines/strategy";
 import { getMarketDataProvider } from "@/lib/providers/registry";
 import { testHypothesis } from "@/lib/engines/hypothesis";
+import { toJson } from "@/lib/json";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
@@ -22,9 +23,9 @@ export async function POST(request: Request) {
     data: {
       name: `Hypothesis test: ${statement.slice(0, 80)}`,
       durationDays: Math.round((marketResult.bars.length * (def.timeframe === "D1" ? 1 : def.timeframe === "H4" ? 1 / 6 : def.timeframe === "H1" ? 1 / 24 : 1 / 96))),
-      config: { strategyDefId, symbol, timeframe: def.timeframe },
+      config: toJson({ strategyDefId, symbol, timeframe: def.timeframe }),
       status: "COMPLETED",
-      result: testResult as object,
+      result: toJson(testResult),
       completedAt: new Date(),
     },
   });

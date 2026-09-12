@@ -3,6 +3,7 @@ import { getStrategyPerformanceStats } from "@/lib/engines/strategyStats";
 import { rankStrategies } from "@/lib/engines/strategyLeague";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { fromJson } from "@/lib/json";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default async function LeaguePage() {
         where: { strategyVersionId: v.id, kind: "ROBUSTNESS" },
         orderBy: { createdAt: "desc" },
       });
-      const summary = latestRobustness?.summary as { robustness?: { score: number } } | null;
+      const summary = fromJson<{ robustness?: { score: number } } | null>(latestRobustness?.summary, null);
       return {
         strategyVersionId: v.id,
         strategyName: `${v.strategy.name} v${v.version}`,

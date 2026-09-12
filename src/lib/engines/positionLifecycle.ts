@@ -5,6 +5,9 @@ import { closePosition } from "./positionStateManager";
 import { runPostMortem } from "./postMortem";
 import { createSystemAlert } from "./alerts";
 import { logAudit } from "./auditLog";
+import { fromJson } from "@/lib/json";
+
+type Direction = "LONG" | "SHORT";
 
 /**
  * Mark-to-market + stop/target tick. Meant to be called frequently (a
@@ -31,7 +34,7 @@ export async function tickPositions(accountId: string) {
     const unrealizedPnl = sign * (latest.price - position.entryPrice) * position.remainingQuantity;
 
     const stopCheck = checkStopsAndTargets({
-      direction: position.direction,
+      direction: position.direction as Direction,
       entryPrice: position.entryPrice,
       currentHigh: latest.price,
       currentLow: latest.price,
@@ -46,7 +49,7 @@ export async function tickPositions(accountId: string) {
       const mae = Math.abs(Math.min(0, sign * (latest.price - position.entryPrice))) / position.entryPrice;
       const mfe = Math.max(0, sign * (latest.price - position.entryPrice)) / position.entryPrice;
 
-      const snapshot = position.snapshot as { aiAnalysis?: { recommendation?: string }; regime?: { regime?: string } } | null;
+      const snapshot = fromJson<{ aiAnalysis?: { recommendation?: string }; regime?: { regime?: string } } | null>(position.snapshot, null);
       const hypothesisWasSound = snapshot?.aiAnalysis ? snapshot.aiAnalysis.recommendation === "APPROVE" : null;
 
       const { trade, netPnl } = await closePosition({

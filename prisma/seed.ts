@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { STRATEGY_REGISTRY } from "../src/lib/engines/strategy";
 import { SUPPORTED_ASSETS } from "../src/lib/env";
+import { toJson } from "../src/lib/json";
 
 const prisma = new PrismaClient();
 
@@ -41,17 +42,17 @@ async function main() {
       create: {
         strategyId: strategy.id,
         version: def.version,
-        parameters: def.defaultParams,
+        parameters: toJson(def.defaultParams),
         timeframe: def.timeframe,
-        allowedMarkets: [],
-        recommendedRegimes: def.recommendedRegimes,
-        entryRules: { description: "See strategy implementation for entry logic." },
-        exitRules: { description: "Stop-loss / take-profit / trailing-stop as configured." },
+        allowedMarkets: toJson([]),
+        recommendedRegimes: toJson(def.recommendedRegimes),
+        entryRules: toJson({ description: "See strategy implementation for entry logic." }),
+        exitRules: toJson({ description: "Stop-loss / take-profit / trailing-stop as configured." }),
         stopLossPct: def.defaultStopLossPct,
         takeProfitPct: def.defaultTakeProfitPct,
         trailingStopPct: def.defaultTrailingStopPct,
-        filters: {},
-        costModel: def.costModel,
+        filters: toJson({}),
+        costModel: toJson(def.costModel),
         changeLog: "Initial version.",
       },
     });
@@ -78,7 +79,7 @@ async function main() {
     await prisma.circuitBreaker.upsert({
       where: { name },
       update: {},
-      create: { name, kind: name.toUpperCase().replace(/-/g, "_"), threshold: {}, isTripped: false },
+      create: { name, kind: name.toUpperCase().replace(/-/g, "_"), threshold: toJson({}), isTripped: false },
     });
   }
   console.log(`Seeded ${breakerNames.length} circuit breakers (all untripped).`);

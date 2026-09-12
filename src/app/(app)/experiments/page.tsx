@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { tVerdict } from "@/lib/i18n";
+import { fromJson } from "@/lib/json";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export default async function ExperimentsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {experiments.map((e) => {
-            const result = e.result as { status?: string; metrics?: { totalReturnPct?: number; sharpe?: number | null } } | null;
+            const result = fromJson<{ status?: string; metrics?: { totalReturnPct?: number; sharpe?: number | null } } | null>(e.result, null);
             return (
               <Card key={e.id} title={e.name} subtitle={`ventana de ${e.durationDays} días`}>
                 <div className="flex flex-wrap items-center gap-2 text-xs">

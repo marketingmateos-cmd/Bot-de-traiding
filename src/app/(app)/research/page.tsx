@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/Badge";
 import { HypothesisForm } from "@/components/research/HypothesisForm";
 import { env } from "@/lib/env";
 import { tEvidenceLevel, tVerdict } from "@/lib/i18n";
+import { fromJson } from "@/lib/json";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,7 @@ export default async function ResearchPage() {
                   {a.cached && <Badge tone="muted" className="ml-1">caché</Badge>}
                 </summary>
                 <pre className="mt-2 overflow-x-auto rounded bg-black/40 p-2 font-mono text-[11px] text-slate-300">
-                  {JSON.stringify(a.output, null, 2)}
+                  {JSON.stringify(fromJson(a.output, {}), null, 2)}
                 </pre>
               </details>
             ))}
