@@ -121,7 +121,10 @@ export function runBacktest(
         });
         const sign = openPosition.direction === "LONG" ? 1 : -1;
         const grossPnl = sign * (fill.fillPrice - openPosition.entryPrice) * openPosition.quantity;
-        const netPnl = grossPnl - fill.fee - fill.slippageCost;
+        // fill.fillPrice/openPosition.entryPrice are already slippage-adjusted,
+        // so grossPnl already reflects slippage — only the fee is still owed.
+        // Matches the Fase 1.A2 fix in positionStateManager.ts (backtest/live parity).
+        const netPnl = grossPnl - fill.fee;
         equity += netPnl;
 
         trades.push({

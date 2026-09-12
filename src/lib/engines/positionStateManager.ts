@@ -213,7 +213,13 @@ export async function closePosition(input: ClosePositionInput) {
 
     const sign = position.direction === "LONG" ? 1 : -1;
     const grossPnl = sign * (fill.fillPrice - position.entryPrice) * position.remainingQuantity;
-    const netPnl = grossPnl - fill.fee - fill.slippageCost;
+    // grossPnl is derived from fill.fillPrice, which is ALREADY the
+    // slippage-adjusted exit price (and position.entryPrice is already the
+    // slippage-adjusted entry price) — so slippage is already fully priced
+    // into grossPnl via those fill prices. Only the exchange fee is a
+    // separate cost still owed. Subtracting fill.slippageCost again here
+    // would double-count it (Fase 1.A2 fix — see pnlMath.audit.test.ts).
+    const netPnl = grossPnl - fill.fee;
     const durationSeconds = Math.max(0, Math.round((Date.now() - position.openedAt.getTime()) / 1000));
 
     const trade = await tx.trade.create({
@@ -265,9 +271,10 @@ export async function closePosition(input: ClosePositionInput) {
     });
 
     // Cash accounting: the entry fee was already deducted when the position
-    // was opened. On close we realize netPnl (gross P&L minus exit fee and
-    // slippage) straight into cash — no separate notional movement, since
-    // this account model tracks P&L rather than simulating margin/collateral.
+    // was opened. On close we realize netPnl (gross P&L, which already
+    // reflects slippage via the fill prices, minus the exit fee) straight
+    // into cash — no separate notional movement, since this account model
+    // tracks P&L rather than simulating margin/collateral.
     await tx.paperAccount.update({
       where: { id: position.accountId },
       data: { cashBalance: { increment: netPnl } },

@@ -146,3 +146,59 @@ describe("runBacktest — realistic, bounded P&L (regression for entry-fee sizin
     expect(Math.abs(result.metrics.totalReturnPct)).toBeLessThan(50);
   });
 });
+
+describe("runBacktest — netPnl must not double-count slippage (Fase 1.A2, backtest/live parity)", () => {
+  // fill.fillPrice/entryPrice are already slippage-adjusted, so grossPnl
+  // (computed from those fill prices) already reflects slippage. netPnl
+  // should only subtract the fee on top — never the slippage cost again.
+  // Positions in this engine only close via stop-loss/take-profit (see
+  // checkStopsAndTargets in backtest.ts), so each strategy below just opens
+  // once on the first eligible bar and lets the default 3%/6% stop/target
+  // naturally close it against a constructed trend.
+  function openOnceStrategy(direction: "LONG" | "SHORT"): StrategyDefinition {
+    let opened = false;
+    return {
+      ...baseStrategy,
+      evaluate() {
+        if (!opened) {
+          opened = true;
+          return { kind: "TREND_FOLLOWING", direction, strength: 1, reason: "entry" };
+        }
+        return null;
+      },
+    };
+  }
+
+  it("a winning LONG trade's (take-profit) netPnl equals grossPnl minus the fee only", () => {
+    const bars = makeTrendingBars(200, 100, 0.002); // steady uptrend clears the 6% take-profit
+    const result = runBacktest(bars, openOnceStrategy("LONG"), {}, { initialEquity: 1000 });
+    expect(result.trades.length).toBeGreaterThan(0);
+    const trade = result.trades[0];
+    expect(trade.exitReason).toBe("TAKE_PROFIT");
+    const grossPnl = (trade.exitPrice - trade.entryPrice) * trade.quantity;
+    expect(grossPnl).toBeGreaterThan(0);
+    expect(trade.netPnl).toBeCloseTo(grossPnl - trade.fees, 6);
+  });
+
+  it("a winning SHORT trade's (take-profit) netPnl equals grossPnl minus the fee only", () => {
+    const bars = makeTrendingBars(200, 100, -0.002); // steady downtrend clears the 6% take-profit
+    const result = runBacktest(bars, openOnceStrategy("SHORT"), {}, { initialEquity: 1000 });
+    expect(result.trades.length).toBeGreaterThan(0);
+    const trade = result.trades[0];
+    expect(trade.exitReason).toBe("TAKE_PROFIT");
+    const grossPnl = (trade.entryPrice - trade.exitPrice) * trade.quantity;
+    expect(grossPnl).toBeGreaterThan(0);
+    expect(trade.netPnl).toBeCloseTo(grossPnl - trade.fees, 6);
+  });
+
+  it("a losing LONG trade's (stop-loss) netPnl equals grossPnl minus the fee only — no extra slippage subtraction", () => {
+    const bars = makeTrendingBars(200, 100, -0.002); // downtrend trips the 3% stop-loss on a LONG
+    const result = runBacktest(bars, openOnceStrategy("LONG"), {}, { initialEquity: 1000 });
+    expect(result.trades.length).toBeGreaterThan(0);
+    const trade = result.trades[0];
+    expect(trade.exitReason).toBe("STOP_LOSS");
+    const grossPnl = (trade.exitPrice - trade.entryPrice) * trade.quantity;
+    expect(grossPnl).toBeLessThan(0);
+    expect(trade.netPnl).toBeCloseTo(grossPnl - trade.fees, 6);
+  });
+});

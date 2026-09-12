@@ -20,30 +20,51 @@ const TIMEFRAME_MS: Record<TimeframeCode, number> = {
   D1: 24 * 60 * 60_000,
 };
 
+// The synthetic walk is always simulated for this many bars internally,
+// anchored to a count-independent "now" bucket (see anchorIndex below), and
+// only the most recent `count` bars are returned. This is the root-cause fix
+// for demo price incoherence: previously the walk length WAS `count`, so
+// asking for 50 vs 200 bars re-walked the same RNG stream for a different
+// number of compounding steps and landed on two different "current" prices
+// for the same instant. Chosen comfortably above the largest `limit` used
+// anywhere in the codebase (backtest/walk-forward/robustness routes request
+// up to ~1500 bars) so all realistic call sites share one canonical walk.
+const CANONICAL_WALK_LENGTH = 4096;
+
 /**
  * Generates a synthetic OHLCV series with regime cycles (trending / ranging /
  * volatile phases) via a regime-switching random walk, so downstream engines
  * (regime detection, indicators, strategies) have realistic structure to work
- * with. Deterministic per (symbol, timeframe) so repeated calls & tests are
- * stable within reasonable cache windows, but re-seeds by day so "today" still
- * moves.
+ * with.
+ *
+ * Coherence guarantee: the walk is anchored to `anchorIndex`, a bucket of
+ * `Date.now()` that only depends on (timeframe, wall-clock time) — never on
+ * the caller's requested `count`. The full canonical walk (`CANONICAL_WALK_LENGTH`
+ * bars ending at `anchorIndex`) is simulated from the same seed every time,
+ * and callers only see a tail slice of it. So two calls for the same
+ * (symbol, timeframe) made at essentially the same instant — regardless of
+ * how many bars each requests — always agree on the price/timestamp of the
+ * most recent bar, and on the value of any bar index they both cover.
  */
 function generateSeries(symbol: string, timeframe: TimeframeCode, count: number): OHLCVBar[] {
   const base = BASE_PRICES[symbol] ?? 100;
-  const daySeed = Math.floor(Date.now() / (1000 * 60 * 60 * 6)); // reseed every 6h
-  const seed = hashStringToSeed(`${symbol}:${timeframe}:${daySeed}`);
+  const seed = hashStringToSeed(`${symbol}:${timeframe}`);
   const rand = mulberry32(seed);
   const stepMs = TIMEFRAME_MS[timeframe];
+
+  // Count-independent "now" bucket: only changes once per `stepMs`, and
+  // never depends on how many bars the caller asked for.
+  const anchorIndex = Math.floor(Date.now() / stepMs);
+  const internalLength = Math.max(CANONICAL_WALK_LENGTH, count);
+  const start = (anchorIndex - internalLength + 1) * stepMs;
 
   const bars: OHLCVBar[] = [];
   let price = base * (0.85 + rand() * 0.3);
   let regimeBiasPerBar = 0;
   let regimeVol = 0.006;
   let regimeBarsLeft = 0;
-  const now = Date.now();
-  const start = now - count * stepMs;
 
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < internalLength; i++) {
     if (regimeBarsLeft <= 0) {
       const regimeRoll = rand();
       if (regimeRoll < 0.28) {
@@ -85,7 +106,10 @@ function generateSeries(symbol: string, timeframe: TimeframeCode, count: number)
     price = close;
   }
 
-  return bars;
+  // Only the tail `count` bars are handed back — the rest of the canonical
+  // walk existed purely so that a short-lookback and a long-lookback call at
+  // the same instant compound through the identical number of steps.
+  return bars.slice(bars.length - count);
 }
 
 export class DemoMarketDataProvider implements MarketDataProvider {
