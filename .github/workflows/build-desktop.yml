@@ -1,0 +1,52 @@
+name: Build Windows Desktop Installer
+
+# Builds the downloadable Windows .exe installer natively on a real Windows
+# runner (no Wine/cross-compile workarounds needed there) and publishes it
+# as a workflow artifact so it can be downloaded directly from the Actions
+# tab — the file is ~200MB, too large to send through chat.
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - claude/crypto-ai-trading-lab-fba1xa
+    paths:
+      - "electron/**"
+      - "scripts/prepare-desktop.mjs"
+      - "package.json"
+      - ".github/workflows/build-desktop.yml"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    env:
+      DATABASE_URL: file:./dev.db
+      MARKET_DATA_PROVIDER: demo
+      NEWS_PROVIDER: demo
+      SENTIMENT_PROVIDER: demo
+      ONCHAIN_PROVIDER: demo
+      APP_ENV: production
+      DEFAULT_RISK_PROFILE: BALANCED
+      AI_MODEL: claude-sonnet-5
+      AI_DAILY_CALL_BUDGET: "200"
+      AI_MONTHLY_COST_BUDGET_USD: "20"
+      ANTHROPIC_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      - run: npx prisma db push --skip-generate --accept-data-loss
+
+      - run: npm run desktop:build:win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crypto-ai-trading-lab-windows-installer
+          path: dist-desktop/*.exe
+          if-no-files-found: error
