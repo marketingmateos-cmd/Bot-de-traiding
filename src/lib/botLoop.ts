@@ -3,6 +3,7 @@ import { tickPositions } from "@/lib/engines/positionLifecycle";
 import { runPaperTradingScan } from "@/lib/paperTradingEngine";
 import { createSystemAlert } from "@/lib/engines/alerts";
 import { anyBreakerTripped } from "@/lib/engines/circuitBreakers";
+import { computeAndRecordSystemHealth } from "@/lib/engines/systemHealth";
 
 // The autonomous paper-trading loop (spec §6/§8/§45): this is what lets the
 // bot open/close simulated positions without anyone pressing "scan". It only
@@ -93,6 +94,16 @@ export async function runBotLoopOnce(id = "main") {
         title: "Posiciones cerradas automáticamente",
         message: `${tickResult.closed} posición(es) cerrada(s) por stop/objetivo en este ciclo.`,
       });
+    }
+
+    // Fase 2 fix: SystemHealth used to be a dead table, computed live only
+    // when someone happened to have the System Health page open. Recording
+    // it once per cycle here gives it a real, continuous history — never
+    // allowed to break the main loop if it fails (best-effort telemetry).
+    try {
+      await computeAndRecordSystemHealth(accountId);
+    } catch (err) {
+      console.error("[botLoop] computeAndRecordSystemHealth failed", err);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

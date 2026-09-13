@@ -9,10 +9,10 @@
   "scripts": {
     "setup": "bash scripts/setup.sh",
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/stamp-service-worker.mjs && next build",
     "start": "next start",
     "start:railway": "node scripts/ensure-db.mjs && next start -p ${PORT:-3000}",
-    "vercel-build": "node scripts/generate-postgres-schema.mjs && npx prisma generate --schema=prisma/schema.postgres.prisma && node scripts/ensure-db.mjs prisma/schema.postgres.prisma && next build",
+    "vercel-build": "node scripts/stamp-service-worker.mjs && node scripts/generate-postgres-schema.mjs && npx prisma generate --schema=prisma/schema.postgres.prisma && node scripts/ensure-db.mjs prisma/schema.postgres.prisma && next build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

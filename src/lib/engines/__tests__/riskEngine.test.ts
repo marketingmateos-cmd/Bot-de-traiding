@@ -82,6 +82,23 @@ describe("checkExposureLimits", () => {
     });
     expect(result.passed).toBe(true);
   });
+
+  it("tags each violation with a machine-readable kind, in the same order as the human-readable messages (Fase 2 — feeds RiskEvent.kind)", () => {
+    // Deliberately breach all three limits at once: tiny equity so the
+    // projected exposure and per-asset concentration both blow past their
+    // caps, and an already-at-capacity position count.
+    const result = checkExposureLimits({
+      equity: 100,
+      openNotional: 90,
+      newNotional: 50,
+      limits,
+      openPositionCount: limits.maxOpenPositions,
+      assetOpenNotional: 90,
+    });
+    expect(result.passed).toBe(false);
+    expect(result.violationKinds).toEqual(["EXPOSURE", "POSITION_SIZE", "CONCENTRATION"]);
+    expect(result.violationKinds.length).toBe(result.violations.length);
+  });
 });
 
 describe("resolveRiskLimits", () => {

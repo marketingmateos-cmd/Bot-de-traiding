@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { simulateFill } from "./paperExecution";
 import { logAudit } from "./auditLog";
 import { createSystemAlert } from "./alerts";
-import { toJson } from "@/lib/json";
+import { fromJson, toJson } from "@/lib/json";
 
 // Direction / PositionStatus used to be native Prisma enums under Postgres;
 // SQLite has no enum type, so the DB columns are plain strings and these
@@ -222,6 +222,15 @@ export async function closePosition(input: ClosePositionInput) {
     const netPnl = grossPnl - fill.fee;
     const durationSeconds = Math.max(0, Math.round((Date.now() - position.openedAt.getTime()) / 1000));
 
+    // Fase 2 fix — Trade.marketRegime was never populated (dead column):
+    // the regime AT ENTRY was already captured in position.snapshot (set by
+    // paperTradingEngine.ts's openPosition call) but never copied onto the
+    // Trade row itself, so the Journal's per-regime breakdown had nothing
+    // to group by. `snapshot.regime` is the RegimeResult set at entry, per
+    // the doc comment on `snapshot` in OpenPositionInput below.
+    const entrySnapshot = fromJson<{ regime?: { regime?: string } }>(position.snapshot, {});
+    const marketRegime = entrySnapshot.regime?.regime ?? null;
+
     const trade = await tx.trade.create({
       data: {
         accountId: position.accountId,
@@ -240,6 +249,7 @@ export async function closePosition(input: ClosePositionInput) {
         mfe: input.mfe,
         durationSeconds,
         exitReason: input.reason,
+        marketRegime,
         riskLevelAtEntry: position.riskLevelAtEntry,
         openedAt: position.openedAt,
         closedAt: new Date(),

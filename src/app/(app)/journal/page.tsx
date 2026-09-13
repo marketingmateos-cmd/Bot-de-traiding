@@ -20,7 +20,7 @@ import { Badge, verdictTone } from "@/components/ui/Badge";
 import { EquityRangeChart } from "@/components/journal/EquityRangeChart";
 import { JournalCalendar, type CalendarDay, type CalendarDayTrade } from "@/components/journal/JournalCalendar";
 import { JournalExportButton, type ExportRow } from "@/components/journal/JournalExportButton";
-import { tDirection, tExitReason } from "@/lib/i18n";
+import { tDirection, tExitReason, tRegime } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 const ACCOUNT_ID = "main-paper-account";
@@ -141,6 +141,17 @@ export default async function JournalPage() {
     riskTrades,
     (t) => riskBucketLabel(t.riskLevel),
     (key) => key
+  );
+  // Fase 2 fix: Trade.marketRegime used to be a dead column (never
+  // populated by positionStateManager.ts) — now that it's set at close time
+  // from the regime captured in the position's entry snapshot, this
+  // breakdown is real: which market regimes has the bot actually been
+  // profitable in, not just backtested in.
+  const regimeTrades = tradesRaw.filter((t) => t.marketRegime !== null).map((t) => ({ ...toJournalTrade(t), marketRegime: t.marketRegime! }));
+  const regimePerf = groupPerformance(
+    regimeTrades,
+    (t) => t.marketRegime,
+    (key) => tRegime(key)
   );
 
   // Benchmark: bot's realized return over the same window vs Buy & Hold on
@@ -464,6 +475,26 @@ export default async function JournalPage() {
           ) : (
             <div className="flex flex-col gap-2">
               {riskPerf.map((r) => (
+                <div key={r.key} className="flex items-center justify-between rounded border border-bg-border bg-black/20 px-3 py-2 text-xs">
+                  <div>
+                    <div className="font-medium text-slate-200">{r.label}</div>
+                    <div className="text-muted">{r.stats.trades} trades · {(r.stats.winRate * 100).toFixed(0)}% WR</div>
+                  </div>
+                  <span className={`font-mono ${r.stats.totalNetPnl >= 0 ? "text-accent" : "text-danger"}`}>
+                    {r.stats.totalNetPnl >= 0 ? "+" : ""}€{r.stats.totalNetPnl.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card title="Regime Performance" subtitle="¿En qué régimen de mercado ha sido rentable el bot realmente?">
+          {regimePerf.length === 0 ? (
+            <p className="text-sm text-muted">INSUFFICIENT DATA — ninguna operación registrada tiene el régimen de mercado de entrada asociado todavía.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {regimePerf.map((r) => (
                 <div key={r.key} className="flex items-center justify-between rounded border border-bg-border bg-black/20 px-3 py-2 text-xs">
                   <div>
                     <div className="font-medium text-slate-200">{r.label}</div>

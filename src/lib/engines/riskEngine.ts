@@ -132,22 +132,29 @@ export interface ExposureCheckInput {
   assetOpenNotional: number;
 }
 
+export type RiskViolationKind = "EXPOSURE" | "POSITION_SIZE" | "CONCENTRATION";
+
 export interface RiskCheckResult {
   passed: boolean;
   violations: string[];
+  /** Machine-readable tag per violation, same order as `violations` — feeds RiskEvent.kind (Fase 2). */
+  violationKinds: RiskViolationKind[];
   exposurePctAfter: number;
 }
 
 export function checkExposureLimits(input: ExposureCheckInput): RiskCheckResult {
   const violations: string[] = [];
+  const violationKinds: RiskViolationKind[] = [];
   const totalNotional = input.openNotional + input.newNotional;
   const exposurePctAfter = input.equity > 0 ? (totalNotional / input.equity) * 100 : 100;
 
   if (exposurePctAfter > input.limits.maxExposurePct) {
     violations.push(`La exposición proyectada del ${exposurePctAfter.toFixed(1)}% supera el máximo de ${input.limits.maxExposurePct}%.`);
+    violationKinds.push("EXPOSURE");
   }
   if (input.openPositionCount + 1 > input.limits.maxOpenPositions) {
     violations.push(`Abrir esta posición superaría el máximo de posiciones abiertas (${input.limits.maxOpenPositions}).`);
+    violationKinds.push("POSITION_SIZE");
   }
 
   const assetTotalNotional = input.assetOpenNotional + input.newNotional;
@@ -156,9 +163,10 @@ export function checkExposureLimits(input: ExposureCheckInput): RiskCheckResult 
     violations.push(
       `La concentración proyectada en este activo (${assetConcentrationPctAfter.toFixed(1)}%, sumando todas las estrategias) supera el máximo de ${input.limits.maxConcentrationPct}% por activo.`
     );
+    violationKinds.push("CONCENTRATION");
   }
 
-  return { passed: violations.length === 0, violations, exposurePctAfter };
+  return { passed: violations.length === 0, violations, violationKinds, exposurePctAfter };
 }
 
 export function computeDrawdown(equityCurve: number[]): { current: number; max: number } {

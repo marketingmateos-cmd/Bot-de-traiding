@@ -132,6 +132,55 @@ describe("positionStateManager — openPosition / closePosition", () => {
       closePosition({ positionId: position.id, exitPrice: 95, reason: "MANUAL", feeBps: 10, mae: 0, mfe: 0 })
     ).rejects.toThrow(InvalidTransitionError);
   });
+
+  it("copies the entry-time regime from the position snapshot onto Trade.marketRegime (Fase 2 fix)", async () => {
+    const { position } = await openPosition({
+      accountId,
+      assetId,
+      strategyVersionId: null,
+      direction: "LONG",
+      requestedPrice: 100,
+      quantity: 1,
+      stopLoss: 95,
+      takeProfit: 110,
+      trailingStopPct: null,
+      feeBps: 10,
+      slippageBps: 5,
+      riskLevelAtEntry: 5,
+      gateResult: {},
+      // Mirrors the shape paperTradingEngine.ts actually stores: the full
+      // RegimeResult under `regime`.
+      snapshot: { regime: { regime: "STRONG_BULL", confidence: 0.9, details: { trendSlopePct: 5, volatilityPercentile: 30, rangeWidthPct: 2 } } },
+    });
+
+    const { trade } = await closePosition({ positionId: position.id, exitPrice: 105, reason: "TAKE_PROFIT", feeBps: 10, mae: 0, mfe: 0.05 });
+
+    // marketRegime was a permanently-null dead column before this fix — it
+    // must now reflect the regime captured at entry time, not left null.
+    expect(trade.marketRegime).toBe("STRONG_BULL");
+  });
+
+  it("leaves Trade.marketRegime null (not throwing) when the snapshot has no regime info", async () => {
+    const { position } = await openPosition({
+      accountId,
+      assetId,
+      strategyVersionId: null,
+      direction: "LONG",
+      requestedPrice: 100,
+      quantity: 1,
+      stopLoss: 95,
+      takeProfit: 110,
+      trailingStopPct: null,
+      feeBps: 10,
+      slippageBps: 5,
+      riskLevelAtEntry: 5,
+      gateResult: {},
+      snapshot: { note: "no regime field here" },
+    });
+
+    const { trade } = await closePosition({ positionId: position.id, exitPrice: 105, reason: "TAKE_PROFIT", feeBps: 10, mae: 0, mfe: 0.05 });
+    expect(trade.marketRegime).toBeNull();
+  });
 });
 
 describe("positionStateManager — transitionPosition state machine", () => {

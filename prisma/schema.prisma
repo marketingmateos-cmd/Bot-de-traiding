@@ -469,10 +469,13 @@ model PostMortem {
 // RISK / SAFETY
 // ─────────────────────────────────────────────────────────────────────────
 
+// Fase 2 fix — was fully dead (no code ever wrote to it). Now populated by
+// paperTradingEngine.ts whenever checkExposureLimits (riskEngine.ts) blocks
+// a candidate, one row per RiskViolationKind it returned.
 model RiskEvent {
   id          String   @id @default(cuid())
   accountId   String?
-  kind        String // POSITION_SIZE, EXPOSURE, CORRELATION, DRAWDOWN, VOLATILITY
+  kind        String // EXPOSURE, POSITION_SIZE, CONCENTRATION, CORRELATION, DRAWDOWN, VOLATILITY — see RiskViolationKind in riskEngine.ts
   severity    String // INFO, WARN, CRITICAL
   message     String
   data        String?

@@ -154,6 +154,7 @@ afterAll(async () => {
   await prisma.positionStateChange.deleteMany({ where: { position: { accountId } } });
   await prisma.paperPosition.deleteMany({ where: { accountId } });
   await prisma.paperOrder.deleteMany({ where: { accountId } });
+  await prisma.riskEvent.deleteMany({ where: { accountId } });
   await prisma.paperAccount.delete({ where: { id: accountId } });
   await prisma.aIAnalysis.deleteMany({ where: { assetId } });
   await prisma.strategyVersion.deleteMany({ where: { strategyId } });
@@ -182,5 +183,13 @@ describe("AUDIT: runPaperTradingScan caps per-asset concentration across differe
     expect(concentrationPct).toBeLessThanOrEqual(45 + 1e-6);
     expect(openPositions.length).toBeGreaterThan(0);
     expect(openPositions.length).toBeLessThan(NUM_VERSIONS);
+  });
+
+  it("records a RiskEvent for every candidate blocked by the concentration cap (Fase 2 — RiskEvent was previously a dead table)", async () => {
+    const riskEvents = await prisma.riskEvent.findMany({ where: { accountId } });
+    expect(riskEvents.length).toBeGreaterThan(0);
+    expect(riskEvents.every((e) => e.kind === "CONCENTRATION")).toBe(true);
+    expect(riskEvents.every((e) => e.severity === "WARN")).toBe(true);
+    expect(riskEvents.every((e) => e.message.toLowerCase().includes("concentración"))).toBe(true);
   });
 });

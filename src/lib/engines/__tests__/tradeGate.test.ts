@@ -20,7 +20,7 @@ function baseInput(overrides: Partial<TradeGateInput> = {}): TradeGateInput {
     onChain: availableOnChain,
     aiAnalyst: { signal: "LONG", confidence: 0.7, reasons: [], risks: [], invalidation_conditions: [], data_quality: 80, recommendation: "APPROVE" },
     aiCritic: { verdict: "APPROVED", challengedReasons: [], biasesFound: [], overfittingConcern: false, notes: "" },
-    risk: { passed: true, violations: [], exposurePctAfter: 10 },
+    risk: { passed: true, violations: [], violationKinds: [], exposurePctAfter: 10 },
     circuitBreakerTripped: false,
     circuitBreakerReasons: [],
     robustness: assessEvidence({ trades: 0, winRate: 0, avgReturnPct: 0, sharpe: null, sortino: null, maxDrawdownPct: 0, totalNetPnl: 0, profitFactor: null }),

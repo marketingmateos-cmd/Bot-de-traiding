@@ -367,6 +367,23 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
         robustness: evidence,
       });
 
+      // Fase 2 fix — RiskEvent was a fully dead table (never written to).
+      // One row per violation the Risk Engine actually raised for this
+      // candidate, independent of circuit breakers (which have their own
+      // table/kinds) — this is specifically the exposure/position-size/
+      // concentration decisions from checkExposureLimits.
+      if (!riskCheck.passed) {
+        await prisma.riskEvent.createMany({
+          data: riskCheck.violationKinds.map((kind, i) => ({
+            accountId,
+            kind,
+            severity: "WARN",
+            message: riskCheck.violations[i],
+            data: toJson({ symbol: asset.symbol, strategyVersionId: version.id, exposurePctAfter: riskCheck.exposurePctAfter }),
+          })),
+        });
+      }
+
       const snapshot = {
         features: analysis.features,
         regime: analysis.regime,

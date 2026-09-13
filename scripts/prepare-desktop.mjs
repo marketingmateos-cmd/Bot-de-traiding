@@ -13,8 +13,12 @@ import { execSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stampServiceWorker } from "./stamp-service-worker.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+
+console.log("-> Actualizando el CACHE_NAME del service worker...");
+stampServiceWorker(join(root, "public", "sw.js"), String(Date.now()));
 
 // BUILD_TARGET=desktop switches next.config.ts to `output: "standalone"` —
 // only the packaged desktop build needs that, not a normal hosted deploy —

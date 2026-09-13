@@ -1,7 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getSymbolAnalysis } from "@/lib/orchestrator";
-import { detectAnomalies, computeSystemHealthScore } from "@/lib/engines/anomalyDetector";
-import { SUPPORTED_ASSETS } from "@/lib/env";
+import { computeAndRecordSystemHealth } from "@/lib/engines/systemHealth";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { ScoreBar } from "@/components/ui/StatTile";
@@ -11,31 +9,12 @@ export const dynamic = "force-dynamic";
 const ACCOUNT_ID = "main-paper-account";
 
 export default async function SystemHealthPage() {
-  const recentTrades = await prisma.trade.findMany({ where: { accountId: ACCOUNT_ID }, orderBy: { closedAt: "desc" }, take: 20 });
-  const openPositions = await prisma.paperPosition.findMany({ where: { accountId: ACCOUNT_ID, status: { in: ["OPEN", "PARTIALLY_CLOSED"] } } });
-  const breakers = await prisma.circuitBreaker.findMany();
   const alerts = await prisma.systemAlert.findMany({ orderBy: { createdAt: "desc" }, take: 15 });
 
-  const dataQualities = await Promise.all(SUPPORTED_ASSETS.map((a) => getSymbolAnalysis(a.symbol, "H1")));
-  const avgDataQuality = Math.round(dataQualities.reduce((s, a) => s + a.dataQuality.score, 0) / dataQualities.length);
-
-  const seen = new Map<string, string>();
-  let duplicateCount = 0;
-  for (const p of openPositions) {
-    const key = `${p.assetId}:${p.strategyVersionId}:${p.direction}`;
-    if (seen.has(key)) duplicateCount++;
-    seen.set(key, p.id);
-  }
-
-  const anomalies = detectAnomalies({
-    recentTradePnls: recentTrades.map((t) => t.netPnl),
-    duplicateOpenPositionCount: duplicateCount,
-    dataQualityScore: avgDataQuality,
-    apiHealthy: true,
-    reconciliationConsistent: breakers.find((b) => b.name === "position-inconsistency")?.isTripped !== true,
-    priceJumpPct: null,
-  });
-  const healthScore = computeSystemHealthScore(anomalies, avgDataQuality, true);
+  // Also persists this snapshot to the SystemHealth table (Fase 2 fix — see
+  // systemHealth.ts) so every visit adds a real history data point, on top
+  // of the once-per-bot-loop-cycle recordings.
+  const { score: healthScore, anomalies, avgDataQuality } = await computeAndRecordSystemHealth(ACCOUNT_ID);
 
   return (
     <div className="flex flex-col gap-5">

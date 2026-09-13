@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
+const { isServerRunning } = require("./serverLifecycle");
 
 const isPackaged = app.isPackaged;
 const resourcesDir = isPackaged ? process.resourcesPath : path.join(__dirname, "..");
@@ -129,21 +130,34 @@ async function startServer() {
   });
 }
 
+// Fase 2 fix: on macOS, closing every window doesn't quit the app, and
+// clicking the dock icon fires `activate`, which used to call createWindow()
+// unconditionally — spawning a brand-new server child process (and
+// re-running the migration) even though the original one from app launch
+// was still alive and listening on PORT. That orphaned the first process
+// (its reference was simply overwritten, so before-quit could never kill
+// it) and raced a second server against the same port. Only start the
+// server once per app lifetime; a later `activate` with the server already
+// up just opens a new window against it. See serverLifecycle.js for the
+// guard itself (extracted there so it's unit-testable without mocking
+// Electron/child_process).
 async function createWindow() {
-  try {
-    await startServer();
-  } catch (err) {
-    dialog.showErrorBox("Crypto AI Trading Lab", `No se pudo preparar la base de datos: ${err.message}`);
-    app.quit();
-    return;
-  }
+  if (!isServerRunning(serverProcess)) {
+    try {
+      await startServer();
+    } catch (err) {
+      dialog.showErrorBox("Crypto AI Trading Lab", `No se pudo preparar la base de datos: ${err.message}`);
+      app.quit();
+      return;
+    }
 
-  try {
-    await waitForServer(`http://127.0.0.1:${PORT}/dashboard`);
-  } catch (err) {
-    dialog.showErrorBox("Crypto AI Trading Lab", `No se pudo iniciar la aplicación: ${err.message}`);
-    app.quit();
-    return;
+    try {
+      await waitForServer(`http://127.0.0.1:${PORT}/dashboard`);
+    } catch (err) {
+      dialog.showErrorBox("Crypto AI Trading Lab", `No se pudo iniciar la aplicación: ${err.message}`);
+      app.quit();
+      return;
+    }
   }
 
   mainWindow = new BrowserWindow({
