@@ -266,6 +266,59 @@ model BacktestResult {
   @@index([backtestId, assetId])
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// HISTORICAL REPLAY (Fase 7-8) — deliberately its own tables, never sharing
+// a row with PaperAccount/PaperPosition/Trade: a replay is a simulation
+// over historical data, structurally isolated from live paper trading
+// state (see src/lib/replay/replayPortfolio.ts's own doc comment).
+// `strategyId` is the STATIC StrategyDefinition id from the registry
+// (e.g. "trend-following"), not a StrategyVersion row — a replay can also
+// run "Bot completo" (every registered strategy at once), which has no
+// single StrategyVersion to point at, so this is intentionally a plain
+// string rather than a foreign key.
+// ─────────────────────────────────────────────────────────────────────────
+
+model ReplayRun {
+  id              String   @id @default(cuid())
+  strategyId      String? // null = "Bot completo" (every strategy in the registry)
+  assetSymbols    String // JSON string[]
+  timeframe       String
+  startDate       DateTime
+  endDate         DateTime
+  aiMode          String // FULL_HISTORICAL | DETERMINISTIC_AI | AI_ASSISTED
+  dataSource      String // SYNTHETIC | HISTORICAL_REAL
+  initialCapital  Float
+  riskLevel       Int
+  hasSegments     Boolean  @default(false) // true when IS/VALIDATION/OOS ranges were configured
+  hasWalkForward  Boolean  @default(false)
+  status          String   @default("PENDING") // PENDING, RUNNING, DONE, FAILED
+  dataQualityReport String? // JSON ReplayDataQualityReport
+  walkForward     String? // JSON WalkForwardResult, null if not requested
+  robustness      String? // JSON ReplayRobustnessReport
+  overfitting     String? // JSON OverfittingReport
+  evidence        String? // JSON EvidenceQualityReport
+  error           String?
+  createdAt       DateTime @default(now())
+  completedAt     DateTime?
+
+  results ReplayResult[]
+}
+
+model ReplayResult {
+  id            String    @id @default(cuid())
+  replayRunId   String
+  replayRun     ReplayRun @relation(fields: [replayRunId], references: [id], onDelete: Cascade)
+  windowLabel   String // "FULL", "IS", "VALIDATION", "OOS"
+  metrics       String // JSON ReplayMetrics
+  equityCurve   String // JSON [{t, equity}]
+  drawdownCurve String // JSON [{t, drawdownPct}]
+  trades        String // JSON ReplayTradeRecord[]
+  decisions     String // JSON ReplayDecisionRecord[] — the "WHY DID THE BOT ENTER" audit trail
+  createdAt     DateTime  @default(now())
+
+  @@index([replayRunId])
+}
+
 model Benchmark {
   id          String   @id @default(cuid())
   assetId     String

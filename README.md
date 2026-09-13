@@ -177,9 +177,11 @@ Each spec module maps to one file: `dataQuality.ts`, `features.ts` (indicators),
 (stop/target ticking + mark-to-market), `tradeGate.ts`, `circuitBreakers.ts`, `backtest.ts`,
 `walkForward.ts`, `monteCarlo.ts`, `robustness.ts`, `overfitting.ts`, `benchmark.ts`,
 `hypothesis.ts`, `postMortem.ts`, `luckVsEdge.ts`, `strategyLeague.ts`, `anomalyDetector.ts`,
-`aiBudget.ts`, `auditLog.ts`, `alerts.ts`, `dailyProfitProtection.ts` (Fase 6, below). All are
-plain, mostly-pure TypeScript — no framework coupling — which is what makes the Vitest suite
-possible without mocking half the app.
+`aiBudget.ts`, `auditLog.ts`, `alerts.ts`, `dailyProfitProtection.ts` (Fase 6, below), and
+`src/lib/replay/*` (Fase 7-8's Historical Replay engine, below — a separate module tree, not
+under `engines/`, since it composes these engines rather than being one itself). All are plain,
+mostly-pure TypeScript — no framework coupling — which is what makes the Vitest suite possible
+without mocking half the app.
 
 ### The Trade Gate (`tradeGate.ts`)
 
@@ -271,6 +273,81 @@ criteria, and the reduced size) is edited from Settings and takes effect on the 
 by a dedicated regression test (`backtest.test.ts`) that fails if the window ever grows
 out of order or a fill uses same-bar data.
 
+### Historical Replay (Fase 7-8) — `src/lib/replay/`
+
+A second, structurally separate simulation engine from `backtest.ts` above: instead of a
+strategy-only loop, it drives the **full** live pipeline (strategy → data quality → regime → AI
+Analyst → AI Critic → Trade Gate → Risk Engine → circuit breakers → execution) chronologically
+over historical bars, so it answers "how would the actual bot have decided", not just "would this
+signal have been profitable". `/replay` (Research → Historical Replay in the nav) is the UI; `POST
+/api/replay/run` + `GET /api/replay/[id]` persist runs to their own `ReplayRun`/`ReplayResult`
+tables.
+
+- **Isolation (REGLA ABSOLUTA #7)**: `ReplayPortfolio` is a plain in-memory object with no
+  `@/lib/db` import anywhere in it — a replay run never reads or writes
+  `PaperAccount`/`PaperPosition`/`PaperOrder`/`Trade`/`BotConfig`. Verified by dedicated tests
+  (`historicalReplayEngine.test.ts`, `benchmarkAndIsolation.test.ts`) that assert those tables'
+  row counts are unchanged after a run.
+- **Zero look-ahead, structurally**: `ReplayClock` only ever moves forward one tick at a time, and
+  `barsAsOf(bars, tickMs)` — the single chokepoint every strategy/indicator/regime/AI/Trade
+  Gate/Risk/execution call goes through — truncates every asset's series to "at or before the
+  current tick", exactly mirroring `backtest.ts`'s own `bars[0..i]` discipline but generalized to
+  multiple assets and the full pipeline.
+- **Data Quality gate (Fase 7C)**: `evaluateHistoricalDataQuality` checks coverage, gaps,
+  duplicate timestamps, chronology violations, invalid OHLCV, and future-date leakage over the
+  *whole* requested range before a replay is allowed to run at all — a replay with < 50% coverage,
+  any future leakage, or an out-of-order timestamp is refused, not silently degraded.
+- **IS / VALIDATION / OOS (Fase 7D)**: `runIsValidationOosReplay` runs three **fully independent**
+  replays (their own portfolio, equity curve, trade list) over the same underlying bars — never
+  one combined curve. Nothing in this codebase has a parameter optimizer that could act on OOS
+  results even if the three were mixed, so "never tune on OOS" holds structurally, not just by
+  UI convention.
+- **Walk-Forward (Fase 7E)**: `runReplayWalkForward` slides a train/test window across the full
+  range, running the *full pipeline* replay (not just `runBacktest`) for both halves of every
+  window. Its output is the exact same `WalkForwardResult` shape the existing (Fase 4)
+  `computeRobustnessScore`/`detectOverfitting` already consume — `ReplayMetrics` is a structural
+  superset of `BacktestMetrics`, so those two engines needed zero changes to accept it.
+- **Three AI modes (Fase 7B)**, chosen per run: `FULL_HISTORICAL` only ever uses a REAL
+  `AIAnalysis` row the live system already wrote near that exact historical timestamp — if none
+  exists (the overwhelming majority of the time, since this environment has no real historical
+  news/sentiment/on-chain archive either) the candidate is marked `SKIPPED_NO_HISTORICAL_DATA`,
+  never fabricated. `DETERMINISTIC_AI` always calls the rule-based `DemoAIProvider` — a pure
+  function of its input, reproducible, explicitly tagged `DETERMINISTIC_SYNTHETIC` (never presented
+  as a real historical conversation). `AI_ASSISTED` calls whatever AI provider is live-configured
+  during the replay itself, tagged `EXPERIMENTAL_LIVE`, capped at 200 calls/run as a safety
+  ceiling (mirrors `circuitBreakers.ts`'s own MAX_TRADES philosophy — a technical guard, not a
+  trading rule).
+- **Robustness & Overfitting (Fase 7G/7H)**: `runReplayRobustnessAnalysis` re-runs the same config
+  under parameter jitter, elevated fees/slippage, and (optionally) other assets, then feeds those
+  returns — plus the run's own walk-forward as "different periods" — into the unmodified Fase 4
+  `computeRobustnessScore`. Its `ROBUST`/`MODERATE`/`FRAGILE`/`INSUFFICIENT_DATA` classification
+  explicitly refuses `ROBUST` below 30 trades and an executed walk-forward, no matter the score.
+  `detectReplayOverfitting` delegates straight to the existing `detectOverfitting`.
+- **Evidence Quality (Fase 8)**: `computeEvidenceQuality` takes **no profitability figure as
+  input at all** — sample size, data coverage, OOS presence/size, robustness classification, and
+  overfitting risk decide `INSUFFICIENT_EVIDENCE`/`LOW`/`MEDIUM`/`HIGH`, so a good-looking return
+  on a thin, un-validated sample can never read as strong evidence.
+- **"WHY DID THE BOT ENTER?"**: every decision the engine records (only when a strategy actually
+  produced a signal — not every silent bar, to keep a months-long replay's log a sane size) carries
+  the full chain — market/regime, strategy signal, AI Analyst/Critic output, Trade Gate steps,
+  Risk Engine result, sizing, and a plain-language reason — plus a per-source `availability` tag
+  (`SYNTHETIC`/`REAL`/`UNAVAILABLE` for market/news/sentiment/on-chain,
+  `REAL_HISTORICAL`/`DETERMINISTIC_SYNTHETIC`/`EXPERIMENTAL_LIVE`/`UNAVAILABLE` for AI) so the UI
+  never has to guess what actually backed a given decision.
+
+**Honest finding from building this**: running a real replay surfaced that most of the 7 built-in
+strategies' own `defaultStopLossPct` (2-4%) combined with `calculatePositionSize`'s risk-based
+sizing make a single, brand-new position's notional exceed `maxConcentrationPct` at most risk
+levels 1-10 — meaning several (strategy, risk level) combinations can structurally never open a
+first trade, in replay **or in live paper trading**, since both share the exact same
+`calculatePositionSize`/`checkExposureLimits` functions. This isn't a replay bug (a replay at
+`riskLevel: 1` with `trend-following` over 6 months of synthetic BTC data opens 735 real trades
+end to end, confirming the pipeline itself works) — it's a pre-existing calibration mismatch
+between strategy defaults and the risk-level anchor table from earlier phases, which Fase 7 simply
+made visible by actually trying to trade for months at a time instead of one scan at a time. Not
+fixed here (would mean changing Risk Engine/strategy defaults, out of this phase's "no tocar"
+scope) — flagged for a deliberate follow-up decision.
+
 ### AI layer (spec #16, #17, #36)
 
 `AIAnalystOutput`/`AICriticOutput` are typed JSON, never free text — both the rule-based demo
@@ -305,10 +382,22 @@ rate and degrades to cache-only rather than ever crashing the app on quota exhau
 - **Real**: all indicator math, regime detection, backtest/walk-forward/Monte Carlo engines, risk
   sizing, fee/slippage simulation, the full Trade Gate, position state machine + reconciliation,
   circuit breakers, correlation-aware exposure limits, Daily Profit Protection (Fase 6, above),
+  Historical Replay's full-pipeline simulation, anti-lookahead, data quality gating, IS/VALIDATION/
+  OOS separation, walk-forward, robustness/overfitting/evidence classification (Fase 7-8, above),
   post-mortem classification, strategy versioning, AI budget tracking, and the autonomous bot loop
   (above). All of it runs against a real database via Prisma (SQLite for local
   dev, the desktop app, and Render; a generated Postgres schema for the Vercel deploy path — see
   `scripts/generate-postgres-schema.mjs`), not mocked.
+- **Historical Replay's data is honestly all SYNTHETIC today**: there is no real historical market
+  data, news, sentiment, or on-chain provider wired into this environment (see Provider
+  Abstraction above — only "demo" exists for any of the four). `dataSource: "SYNTHETIC"` is the
+  only mode that actually runs; `"HISTORICAL_REAL"` is fully implemented in the type system and
+  architecture but always honestly returns `HISTORICAL DATA UNAVAILABLE` rather than silently
+  falling back to synthetic data and calling it real (see `historicalDataProvider.ts`). AI mode
+  `FULL_HISTORICAL` is the one path that can use genuinely real historical evidence — a real
+  `AIAnalysis` row the live system already wrote — but only for the rare instant a replay's
+  timestamp happens to fall within 30 minutes of one, since months-long replay ranges essentially
+  never line up with this demo environment's own short live-running history.
 - **Multi-asset (V3)**: `Asset.assetClass` (`CRYPTO` | `FOREX` | `METALS`) exists in the schema and
   the Dashboard's "Mercados" card is already asset-class-aware, but only `CRYPTO` has an actual
   provider/seeded assets today — Forex and Metals show "próximamente" rather than fabricated data.

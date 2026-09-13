@@ -47,15 +47,45 @@ const CANONICAL_WALK_LENGTH = 4096;
  * most recent bar, and on the value of any bar index they both cover.
  */
 function generateSeries(symbol: string, timeframe: TimeframeCode, count: number): OHLCVBar[] {
+  const anchorIndex = Math.floor(Date.now() / TIMEFRAME_MS[timeframe]);
+  return walkSeries(symbol, timeframe, anchorIndex, Math.max(CANONICAL_WALK_LENGTH, count)).slice(-count);
+}
+
+/**
+ * Fase 7 — Historical Replay needs this exact same regime-switching walk,
+ * but anchored to an arbitrary historical `endDate` instead of `Date.now()`,
+ * so a replay of "Jan-Jun 2025" always reproduces the identical bars no
+ * matter when it's actually run (determinism requirement, spec rule #6) —
+ * never a live "now"-relative price. Pulled out of `generateSeries` as a
+ * pure function of (symbol, timeframe, anchorIndex, length) so both the
+ * live provider (anchored to now) and this historical path (anchored to
+ * `endDate`) share one implementation; `generateSeries`'s own behavior is
+ * unchanged (see demo-provider.test.ts / demo-provider.audit.test.ts).
+ * Always labeled synthetic by its caller — never presented as real
+ * historical market data (see replay/historicalDataProvider.ts).
+ */
+export function generateHistoricalWalk(symbol: string, timeframe: TimeframeCode, startDate: Date, endDate: Date): OHLCVBar[] {
+  const stepMs = TIMEFRAME_MS[timeframe];
+  const anchorIndex = Math.floor(endDate.getTime() / stepMs);
+  const requestedCount = Math.max(1, Math.floor((endDate.getTime() - startDate.getTime()) / stepMs) + 1);
+  const internalLength = Math.max(CANONICAL_WALK_LENGTH, requestedCount);
+  const bars = walkSeries(symbol.toUpperCase(), timeframe, anchorIndex, internalLength);
+  return bars.filter((b) => b.timestamp.getTime() >= startDate.getTime() && b.timestamp.getTime() <= endDate.getTime());
+}
+
+/**
+ * Pure regime-switching random walk of `length` bars ending at
+ * `anchorIndex` (a bucket index of `stepMs` since the epoch) — no reference
+ * to wall-clock time anywhere in here, so the same (symbol, timeframe,
+ * anchorIndex, length) always reproduces byte-identical bars.
+ */
+function walkSeries(symbol: string, timeframe: TimeframeCode, anchorIndex: number, length: number): OHLCVBar[] {
   const base = BASE_PRICES[symbol] ?? 100;
   const seed = hashStringToSeed(`${symbol}:${timeframe}`);
   const rand = mulberry32(seed);
   const stepMs = TIMEFRAME_MS[timeframe];
 
-  // Count-independent "now" bucket: only changes once per `stepMs`, and
-  // never depends on how many bars the caller asked for.
-  const anchorIndex = Math.floor(Date.now() / stepMs);
-  const internalLength = Math.max(CANONICAL_WALK_LENGTH, count);
+  const internalLength = length;
   const start = (anchorIndex - internalLength + 1) * stepMs;
 
   const bars: OHLCVBar[] = [];
@@ -106,10 +136,7 @@ function generateSeries(symbol: string, timeframe: TimeframeCode, count: number)
     price = close;
   }
 
-  // Only the tail `count` bars are handed back — the rest of the canonical
-  // walk existed purely so that a short-lookback and a long-lookback call at
-  // the same instant compound through the identical number of steps.
-  return bars.slice(bars.length - count);
+  return bars;
 }
 
 export class DemoMarketDataProvider implements MarketDataProvider {

@@ -38,6 +38,7 @@ export const SUB_NAV: Record<string, NavItem[]> = {
   ],
   "/backtesting": [
     { href: "/backtesting", label: "Backtesting" },
+    { href: "/replay", label: "Historical Replay" },
     { href: "/walk-forward", label: "Walk Forward" },
     { href: "/monte-carlo", label: "Monte Carlo" },
     { href: "/robustness", label: "Robustez" },
