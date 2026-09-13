@@ -118,7 +118,13 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
 export interface ExposureCheckInput {
   equity: number;
   openNotional: number; // sum of existing open position notionals (all assets, all strategies)
-  newNotional: number;
+  /**
+   * The sizing engine's own ideal, risk-based notional for this candidate
+   * (from `calculatePositionSize`) — a REQUEST, not a guarantee. This
+   * function may approve a SMALLER notional than requested (see
+   * `approvedNotional`); it never approves more.
+   */
+  requestedNotional: number;
   limits: RiskLimits;
   openPositionCount: number;
   /**
@@ -147,51 +153,133 @@ export interface ExposureCheckInput {
 export type RiskViolationKind = "EXPOSURE" | "POSITION_SIZE" | "CONCENTRATION" | "CORRELATION";
 
 export interface RiskCheckResult {
+  /** True iff SOME nonzero notional can be opened — see `approvedNotional`. */
   passed: boolean;
+  /**
+   * Fase "Risk Level coherence audit" — the notional the caller should
+   * actually size the trade to. Reduced (never increased) from
+   * `requestedNotional` when the full risk-based size would breach
+   * exposure/concentration/correlation; 0 when `passed` is false. The
+   * stop distance and the monetary risk-per-trade TARGET are never
+   * touched — only how much of that target is actually deployed, so a
+   * trade that doesn't fully fit still opens at whatever size honestly
+   * does, rather than being blocked outright (spec: "no forzar ninguna
+   * operación" AND "no bloquear si puede reducirse de forma coherente").
+   */
+  approvedNotional: number;
+  /** True when `approvedNotional < requestedNotional` — the position was reduced, not blocked. */
+  wasClamped: boolean;
+  /** Reasons for an outright reject (passed=false) — position-count is the one dimension that can never be "partially" satisfied by shrinking notional. */
   violations: string[];
   /** Machine-readable tag per violation, same order as `violations` — feeds RiskEvent.kind (Fase 2). */
   violationKinds: RiskViolationKind[];
+  /** Informational: which cap(s) reduced (but did not block) the size — never a reason to alarm, just to explain the smaller-than-ideal position. */
+  clampReasons: string[];
+  /** Machine-readable tag per clamp reason, same order as `clampReasons`. */
+  clampKinds: RiskViolationKind[];
+  /** Computed from `approvedNotional` — what will ACTUALLY be true after this trade, not what was merely requested. */
   exposurePctAfter: number;
 }
 
+const CLAMP_EPSILON = 1e-9;
+
+/**
+ * Fase "Risk Level coherence audit". Root cause this fixes: `calculatePositionSize`'s
+ * risk-based notional (equity * riskPerTradePct / stopLossPct) and this
+ * function's caps (maxExposurePct/maxConcentrationPct) were checked as an
+ * all-or-nothing gate — any breach BLOCKED the whole trade. Because
+ * `riskPerTradePct` grows ~10x from Risk Level 1 to 10 while
+ * `maxConcentrationPct` only grows ~4.5x, and every built-in strategy's
+ * `defaultStopLossPct` is tight (2-4%), the risk-based notional outgrows
+ * the concentration cap at nearly every level above 1 — so raising the
+ * Risk Level made a trade MORE likely to be rejected outright, not more
+ * likely to trade bigger. See README's "Historical Replay" section for the
+ * full numeric audit (Risk Level 1-10 × a 3%-stop strategy).
+ *
+ * The fix: exposure/concentration/correlation are now a CEILING that
+ * clamps the requested notional down to whatever headroom remains, never
+ * an all-or-nothing gate — the stop distance and the risk-per-trade
+ * TARGET are untouched, only how much of that target's notional is
+ * actually deployable. Position COUNT (`maxOpenPositions`) is the one
+ * dimension that stays a hard, unclampable reject: you cannot "partially"
+ * open a position slot. A request that has zero headroom anywhere (or hits
+ * the position-count cap) is still rejected cleanly (`passed: false`,
+ * `approvedNotional: 0`) — this never forces a trade that doesn't fit at
+ * all, it only stops REJECTING one that fits at a smaller, honest size.
+ */
 export function checkExposureLimits(input: ExposureCheckInput): RiskCheckResult {
   const violations: string[] = [];
   const violationKinds: RiskViolationKind[] = [];
-  const totalNotional = input.openNotional + input.newNotional;
-  const exposurePctAfter = input.equity > 0 ? (totalNotional / input.equity) * 100 : 100;
+  const clampReasons: string[] = [];
+  const clampKinds: RiskViolationKind[] = [];
 
-  if (exposurePctAfter > input.limits.maxExposurePct) {
-    violations.push(`La exposición proyectada del ${exposurePctAfter.toFixed(1)}% supera el máximo de ${input.limits.maxExposurePct}%.`);
-    violationKinds.push("EXPOSURE");
-  }
-  if (input.openPositionCount + 1 > input.limits.maxOpenPositions) {
+  const positionCountExceeded = input.openPositionCount + 1 > input.limits.maxOpenPositions;
+  if (positionCountExceeded) {
     violations.push(`Abrir esta posición superaría el máximo de posiciones abiertas (${input.limits.maxOpenPositions}).`);
     violationKinds.push("POSITION_SIZE");
   }
 
-  const assetTotalNotional = input.assetOpenNotional + input.newNotional;
-  const assetConcentrationPctAfter = input.equity > 0 ? (assetTotalNotional / input.equity) * 100 : 100;
-  if (assetConcentrationPctAfter > input.limits.maxConcentrationPct) {
-    violations.push(
-      `La concentración proyectada en este activo (${assetConcentrationPctAfter.toFixed(1)}%, sumando todas las estrategias) supera el máximo de ${input.limits.maxConcentrationPct}% por activo.`
-    );
-    violationKinds.push("CONCENTRATION");
+  if (input.equity <= 0 || input.requestedNotional <= 0 || positionCountExceeded) {
+    return {
+      passed: false,
+      approvedNotional: 0,
+      wasClamped: false,
+      violations,
+      violationKinds,
+      clampReasons,
+      clampKinds,
+      exposurePctAfter: input.equity > 0 ? (input.openNotional / input.equity) * 100 : 100,
+    };
   }
+
+  const exposureCap = (input.limits.maxExposurePct / 100) * input.equity;
+  const exposureHeadroom = Math.max(0, exposureCap - input.openNotional);
+
+  const concentrationCap = (input.limits.maxConcentrationPct / 100) * input.equity;
+  const concentrationHeadroom = Math.max(0, concentrationCap - input.assetOpenNotional);
 
   // Only meaningful when there IS existing correlated exposure to combine
   // with — otherwise this would just restate "this one trade is too big"
-  // (already covered by EXPOSURE/CONCENTRATION above) under a misleading
-  // "correlation" label.
-  const correlatedTotalNotional = input.correlatedOpenNotional + input.newNotional;
-  const correlatedConcentrationPctAfter = input.equity > 0 ? (correlatedTotalNotional / input.equity) * 100 : 100;
-  if (input.correlatedOpenNotional > 0 && correlatedConcentrationPctAfter > input.limits.maxConcentrationPct) {
-    violations.push(
-      `La exposición combinada a activos altamente correlacionados con este (${correlatedConcentrationPctAfter.toFixed(1)}%) supera el máximo de concentración de ${input.limits.maxConcentrationPct}% — varios activos correlacionados pueden recrear el mismo riesgo que un único activo sobreconcentrado.`
-    );
-    violationKinds.push("CORRELATION");
+  // (already covered by exposure/concentration above) under a misleading
+  // "correlation" label, so it imposes no cap of its own in that case.
+  const correlationHeadroom = input.correlatedOpenNotional > 0 ? Math.max(0, concentrationCap - input.correlatedOpenNotional) : Infinity;
+
+  const approvedNotional = Math.min(input.requestedNotional, exposureHeadroom, concentrationHeadroom, correlationHeadroom);
+
+  if (approvedNotional <= CLAMP_EPSILON) {
+    if (exposureHeadroom <= CLAMP_EPSILON) {
+      violations.push(`No queda margen de exposición: ya al ${((input.openNotional / input.equity) * 100).toFixed(1)}% del máximo de ${input.limits.maxExposurePct}%.`);
+      violationKinds.push("EXPOSURE");
+    }
+    if (concentrationHeadroom <= CLAMP_EPSILON) {
+      violations.push(`No queda margen de concentración en este activo: ya al ${((input.assetOpenNotional / input.equity) * 100).toFixed(1)}% del máximo de ${input.limits.maxConcentrationPct}% por activo.`);
+      violationKinds.push("CONCENTRATION");
+    }
+    if (correlationHeadroom <= CLAMP_EPSILON) {
+      violations.push(`No queda margen frente a activos correlacionados: ya al ${((input.correlatedOpenNotional / input.equity) * 100).toFixed(1)}% del máximo de concentración de ${input.limits.maxConcentrationPct}%.`);
+      violationKinds.push("CORRELATION");
+    }
+    return { passed: false, approvedNotional: 0, wasClamped: false, violations, violationKinds, clampReasons, clampKinds, exposurePctAfter: (input.openNotional / input.equity) * 100 };
   }
 
-  return { passed: violations.length === 0, violations, violationKinds, exposurePctAfter };
+  const wasClamped = approvedNotional < input.requestedNotional - CLAMP_EPSILON;
+  if (wasClamped) {
+    if (Math.abs(approvedNotional - exposureHeadroom) <= CLAMP_EPSILON) {
+      clampReasons.push(`Tamaño reducido de ${input.requestedNotional.toFixed(2)} a ${approvedNotional.toFixed(2)} para no superar la exposición máxima del ${input.limits.maxExposurePct}%.`);
+      clampKinds.push("EXPOSURE");
+    }
+    if (Math.abs(approvedNotional - concentrationHeadroom) <= CLAMP_EPSILON) {
+      clampReasons.push(`Tamaño reducido de ${input.requestedNotional.toFixed(2)} a ${approvedNotional.toFixed(2)} para no superar la concentración máxima del ${input.limits.maxConcentrationPct}% en este activo.`);
+      clampKinds.push("CONCENTRATION");
+    }
+    if (Math.abs(approvedNotional - correlationHeadroom) <= CLAMP_EPSILON) {
+      clampReasons.push(`Tamaño reducido de ${input.requestedNotional.toFixed(2)} a ${approvedNotional.toFixed(2)} por exposición combinada a activos correlacionados.`);
+      clampKinds.push("CORRELATION");
+    }
+  }
+
+  const exposurePctAfter = ((input.openNotional + approvedNotional) / input.equity) * 100;
+  return { passed: true, approvedNotional, wasClamped, violations, violationKinds, clampReasons, clampKinds, exposurePctAfter };
 }
 
 export function computeDrawdown(equityCurve: number[]): { current: number; max: number } {

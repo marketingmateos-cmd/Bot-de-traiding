@@ -317,7 +317,7 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
       const riskCheck = checkExposureLimits({
         equity,
         openNotional,
-        newNotional: sizing.notional,
+        requestedNotional: sizing.notional,
         limits: riskLimits,
         openPositionCount: openPositions.length,
         assetOpenNotional: assetNotionalByAssetId.get(asset.id) ?? 0,
@@ -474,7 +474,10 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
       // One row per violation the Risk Engine actually raised for this
       // candidate, independent of circuit breakers (which have their own
       // table/kinds) — this is specifically the exposure/position-size/
-      // concentration decisions from checkExposureLimits.
+      // concentration decisions from checkExposureLimits. Risk Level
+      // coherence fix: a clamped-but-still-opened trade also gets a row
+      // (INFO, not WARN) so a smaller-than-requested position is visible
+      // in the audit trail, not just an outright rejection.
       if (!riskCheck.passed) {
         await prisma.riskEvent.createMany({
           data: riskCheck.violationKinds.map((kind, i) => ({
@@ -482,6 +485,16 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
             kind,
             severity: "WARN",
             message: riskCheck.violations[i],
+            data: toJson({ symbol: asset.symbol, strategyVersionId: version.id, exposurePctAfter: riskCheck.exposurePctAfter }),
+          })),
+        });
+      } else if (riskCheck.wasClamped) {
+        await prisma.riskEvent.createMany({
+          data: riskCheck.clampKinds.map((kind, i) => ({
+            accountId,
+            kind,
+            severity: "INFO",
+            message: riskCheck.clampReasons[i],
             data: toJson({ symbol: asset.symbol, strategyVersionId: version.id, exposurePctAfter: riskCheck.exposurePctAfter }),
           })),
         });
@@ -515,7 +528,14 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
         : gate.verdict === "LOW_CONFIDENCE"
         ? 0.5
         : 0;
-      const executedQuantity = sizing.quantity * sizeMultiplier;
+      // Risk Level coherence fix: base the executed size on the Risk
+      // Engine's APPROVED (possibly clamped-down) notional, never on the
+      // sizing engine's raw risk-based request — a request that doesn't
+      // fully fit under exposure/concentration/correlation now opens at
+      // whatever smaller size honestly does, instead of the whole trade
+      // being blocked outright (see riskEngine.ts's checkExposureLimits).
+      const approvedQuantity = entryPrice > 0 ? riskCheck.approvedNotional / entryPrice : 0;
+      const executedQuantity = approvedQuantity * sizeMultiplier;
 
       if (executedQuantity > 0) {
         const opened = await openPosition({

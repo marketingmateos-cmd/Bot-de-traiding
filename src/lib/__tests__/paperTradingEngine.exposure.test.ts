@@ -165,8 +165,8 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("AUDIT: runPaperTradingScan keeps openNotional live within a single scan (Fase 1.A3)", () => {
-  it("never lets total open exposure exceed the account's maxExposurePct even when several candidates approve in the same cycle", async () => {
+describe("AUDIT: runPaperTradingScan keeps openNotional live within a single scan (Fase 1.A3 + Risk Level coherence fix)", () => {
+  it("never lets total open exposure exceed the account's maxExposurePct even when several candidates approve in the same cycle — clamping later candidates down instead of blocking them outright", async () => {
     await runPaperTradingScan(accountId);
 
     const openPositions = await prisma.paperPosition.findMany({ where: { accountId, status: { in: ["OPEN", "PARTIALLY_CLOSED"] } } });
@@ -175,15 +175,27 @@ describe("AUDIT: runPaperTradingScan keeps openNotional live within a single sca
     const totalNotional = openPositions.reduce((sum, p) => sum + p.entryPrice * p.remainingQuantity, 0);
     const exposurePct = (totalNotional / account.startingBalance) * 100;
 
-    // With the bug, every candidate's exposure check sees openNotional stuck
-    // at 0 (from before the scan started), so all 5 assets would open
-    // (limited only by maxOpenPositions=8) at ~20% actual each — a real
-    // total of ~100%, blowing far past the account's 90% maxExposurePct.
-    // With the fix, only as many open as fit under that 90% cap (3, at
-    // ~20% actual each = ~60% total) before the next candidate is
-    // correctly BLOCKED by RISK_CHECK.
+    // With the ORIGINAL A3 bug, every candidate's exposure check saw
+    // openNotional stuck at 0 (from before the scan started), so all 5
+    // assets would open at ~20% actual each — a real total of ~100%,
+    // blowing far past the account's 90% maxExposurePct. The A3 fix alone
+    // then made checkExposureLimits BLOCK outright once the running total
+    // got close to 90% — but with only distinct assets and generous
+    // per-asset concentration headroom, that meant later candidates were
+    // needlessly rejected even though a smaller, honest size would still
+    // fit. The Risk Level coherence fix replaces that outright block with
+    // a clamp: every candidate still opens, each capped to whatever
+    // exposure headroom remains, so the total never exceeds 90% AND no
+    // candidate is rejected while ANY headroom is left.
     expect(exposurePct).toBeLessThanOrEqual(90 + 1e-6);
-    expect(openPositions.length).toBeGreaterThan(0);
-    expect(openPositions.length).toBeLessThan(NUM_ASSETS);
+    expect(openPositions.length).toBe(NUM_ASSETS);
+
+    // Each candidate's own unclamped half-size (LOW_CONFIDENCE, fresh
+    // strategy) is 20% of equity; five of them uncapped would be 100%,
+    // well past the 90% cap, so at least one must have been visibly
+    // clamped smaller than that to land under it.
+    const UNCLAMPED_HALF_SIZE_PCT = 20;
+    const notionalPcts = openPositions.map((p) => ((p.entryPrice * p.remainingQuantity) / account.startingBalance) * 100);
+    expect(notionalPcts.some((pct) => pct < UNCLAMPED_HALF_SIZE_PCT - 1e-6)).toBe(true);
   });
 });

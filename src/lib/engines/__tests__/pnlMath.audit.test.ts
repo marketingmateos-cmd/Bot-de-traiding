@@ -168,10 +168,17 @@ describe("AUDIT: netPnl must reflect slippage exactly once, not twice", () => {
     // deduct) — grossPnl already nets out the (small, spread-only) slippage
     // via the fill prices.
     expect(trade.netPnl).toBeCloseTo(trade.grossPnl, 6);
-    // And that grossPnl should be close to the ideal, no-cost €1 profit
-    // (10% of €10), off only by the unavoidable spread on each side —
-    // never by more than ~1% of notional given the 2-5bps spread range.
-    expect(trade.grossPnl).toBeGreaterThan(0.9);
-    expect(trade.grossPnl).toBeLessThan(1.0);
+    // And that grossPnl should be close to the ideal, no-cost profit at the
+    // ACTUALLY filled quantity (10% of the notional that really filled),
+    // off only by the unavoidable spread on each side — never by more than
+    // ~1% of notional given the 2-5bps spread range. Scaled by
+    // `trade.quantity` rather than the originally requested 0.1: simulateFill
+    // occasionally (~8% of orders, seeded by the order's own id) fills only
+    // 50-90% of the requested size (see paperExecution.ts's own doc
+    // comment) — a real, documented, and here irrelevant source of
+    // randomness this test must not be flaky against.
+    const idealProfitAtFilledQuantity = trade.quantity * (110 - 100);
+    expect(trade.grossPnl).toBeGreaterThan(idealProfitAtFilledQuantity * 0.9);
+    expect(trade.grossPnl).toBeLessThan(idealProfitAtFilledQuantity);
   });
 });

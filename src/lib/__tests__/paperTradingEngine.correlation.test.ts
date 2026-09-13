@@ -199,16 +199,19 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("AUDIT: correlation is a real risk control across different assets (Fase 5)", () => {
-  it("opens only ONE of three mutually highly-correlated assets, blocking the other two specifically for CORRELATION", async () => {
+describe("AUDIT: correlation is a real risk control across different assets (Fase 5 + Risk Level coherence fix)", () => {
+  it("clamps (never fully blocks, while headroom remains) three mutually highly-correlated assets so their COMBINED notional never exceeds maxConcentrationPct", async () => {
     // All three are mutually |correlation| ~= 1: CORRA/CORRB move in
     // identical lockstep (correlation ~1), and UNCORR moves in the exact
     // opposite direction every single bar (correlation ~-1, so |corr| ~1
-    // against both). Whichever the scan evaluates first should open
-    // normally; the other two, evaluated afterward in the SAME scan, must
-    // each be blocked once combined with that first one's now-open notional
-    // — the actual order asset rows come back in isn't something this test
-    // should need to assume.
+    // against both). Each candidate's own full risk-based request is 40%
+    // of equity — with the Risk Level coherence fix, checkExposureLimits
+    // CLAMPS each one down to whatever correlation headroom remains under
+    // the shared 45% cap instead of blocking the 2nd/3rd outright, so all
+    // three end up opening, each smaller than the last, and the combined
+    // correlated bet across all three still never exceeds 45% — the actual
+    // order asset rows come back in isn't something this test should need
+    // to assume.
     const results = await runPaperTradingScan(accountId);
 
     const corrAResult = results.find((r) => r.symbol.startsWith("CORRA"));
@@ -217,17 +220,28 @@ describe("AUDIT: correlation is a real risk control across different assets (Fas
     expect(corrAResult).toBeDefined();
     expect(corrBResult).toBeDefined();
     expect(uncorrResult).toBeDefined();
+    for (const r of [corrAResult, corrBResult, uncorrResult]) {
+      expect(r!.verdict).not.toBe("BLOCKED");
+    }
 
     const openPositions = await prisma.paperPosition.findMany({ where: { accountId }, include: { asset: true } });
-    expect(openPositions.length).toBe(1); // exactly one of the three actually opened
+    expect(openPositions.length).toBe(3); // all three open — clamped, never rejected, while headroom remains
 
-    const blockedResults = [corrAResult, corrBResult, uncorrResult].filter((r) => r!.verdict === "BLOCKED");
-    expect(blockedResults.length).toBe(2);
-    for (const r of blockedResults) {
-      expect(r!.blockedBy).toBe("RISK_CHECK");
-    }
+    const account = await prisma.paperAccount.findUniqueOrThrow({ where: { id: accountId } });
+    const combinedNotional = openPositions.reduce((sum, p) => sum + p.entryPrice * p.remainingQuantity, 0);
+    const combinedConcentrationPct = (combinedNotional / account.startingBalance) * 100;
+    expect(combinedConcentrationPct).toBeLessThanOrEqual(45 + 1e-6);
+
+    // Each candidate's own unclamped half-size (LOW_CONFIDENCE, fresh
+    // strategy) is 20% of equity; three of them uncapped would be 60%,
+    // well past the 45% cap, so at least one must have been visibly
+    // clamped smaller than that to land under it.
+    const UNCLAMPED_HALF_SIZE_PCT = 20;
+    const notionalPcts = openPositions.map((p) => ((p.entryPrice * p.remainingQuantity) / account.startingBalance) * 100);
+    expect(notionalPcts.some((pct) => pct < UNCLAMPED_HALF_SIZE_PCT - 1e-6)).toBe(true);
 
     const riskEvents = await prisma.riskEvent.findMany({ where: { accountId, kind: "CORRELATION" } });
     expect(riskEvents.length).toBeGreaterThan(0);
+    expect(riskEvents.every((e) => e.severity === "INFO")).toBe(true);
   });
 });

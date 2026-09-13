@@ -238,7 +238,7 @@ export async function runReplayOnBars(
           const riskCheck = checkExposureLimits({
             equity,
             openNotional: portfolio.openNotional(),
-            newNotional: sizing.notional,
+            requestedNotional: sizing.notional,
             limits: riskLimits,
             openPositionCount: openPositions.length,
             assetOpenNotional: portfolio.assetNotional(symbol),
@@ -290,7 +290,11 @@ export async function runReplayOnBars(
           });
 
           const sizeMultiplier = gate.verdict === "APPROVED" ? 1 : gate.verdict === "LOW_CONFIDENCE" ? 0.5 : 0;
-          const executedQuantity = sizing.quantity * sizeMultiplier;
+          // Risk Level coherence fix — see paperTradingEngine.ts's identical
+          // comment: size off the Risk Engine's approved (possibly
+          // clamped-down) notional, not the raw risk-based request.
+          const approvedQuantity = entryPrice > 0 ? riskCheck.approvedNotional / entryPrice : 0;
+          const executedQuantity = approvedQuantity * sizeMultiplier;
 
           let decisionKind: ReplayDecisionRecord["decision"] = "BLOCKED";
           if (executedQuantity > 0) {

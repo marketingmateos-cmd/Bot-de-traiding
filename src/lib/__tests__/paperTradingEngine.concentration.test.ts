@@ -164,32 +164,154 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe("AUDIT: runPaperTradingScan caps per-asset concentration across different strategies (Fase 1.A4)", () => {
-  it("never lets several different strategy versions combine to exceed maxConcentrationPct on the same single asset", async () => {
+describe("AUDIT: runPaperTradingScan caps per-asset concentration across different strategies (Fase 1.A4 + Risk Level coherence fix)", () => {
+  it("never lets several different strategy versions combine to exceed maxConcentrationPct on the same single asset — clamping each down rather than blocking outright once the cap is close", async () => {
     await runPaperTradingScan(accountId);
 
-    const openPositions = await prisma.paperPosition.findMany({ where: { accountId, assetId, status: { in: ["OPEN", "PARTIALLY_CLOSED"] } } });
+    const openPositions = await prisma.paperPosition.findMany({
+      where: { accountId, assetId, status: { in: ["OPEN", "PARTIALLY_CLOSED"] } },
+      orderBy: { openedAt: "asc" },
+    });
     const account = await prisma.paperAccount.findUniqueOrThrow({ where: { id: accountId } });
 
     const assetNotional = openPositions.reduce((sum, p) => sum + p.entryPrice * p.remainingQuantity, 0);
     const concentrationPct = (assetNotional / account.startingBalance) * 100;
 
-    // With the bug, every one of the 6 different strategy versions passes
-    // its own exposure/concentration check independently (each looks fine
-    // in isolation), so all 6 would open on this one asset at ~10% actual
-    // each — a real concentration of ~60%, blowing past the 45% cap. With
-    // the fix, only as many open as fit under that 45% cap before the next
-    // candidate on this same asset is correctly BLOCKED by RISK_CHECK.
+    // With the OLD all-or-nothing gate, every one of the 6 different
+    // strategy versions passed its own exposure/concentration check
+    // independently (each looked fine in isolation), so all 6 would open
+    // on this one asset at ~10% actual each — a real concentration of
+    // ~60%, blowing past the 45% cap. With the Risk Level coherence fix,
+    // checkExposureLimits CLAMPS each candidate's size down to whatever
+    // concentration headroom remains instead of blocking it outright — so
+    // every candidate still opens (no operation is forced OR needlessly
+    // rejected when a smaller, honest size fits), but strictly smaller as
+    // the shared cap fills up, and the combined bet never exceeds it.
     expect(concentrationPct).toBeLessThanOrEqual(45 + 1e-6);
-    expect(openPositions.length).toBeGreaterThan(0);
-    expect(openPositions.length).toBeLessThan(NUM_VERSIONS);
+    expect(openPositions.length).toBe(NUM_VERSIONS);
+
+    // Each candidate's own UNCLAMPED half-size (LOW_CONFIDENCE, fresh
+    // strategy) is equity(10000) * riskPerTradePct(3%) / stopLossPct(15%)
+    // * 0.5 = 1000 before the fill's own few-bps slippage, — no single
+    // position's REQUESTED size may ever exceed that (the Risk Engine only
+    // ever reduces a request, never grants more; the fill price itself can
+    // still land a hair past 1000 once realistic slippage is applied on
+    // top). Since 6 * 1000 = 6000 (60%) would blow past the 45% cap, the
+    // combined total actually opened must land strictly below that naive
+    // sum — proof that clamping, not luck, is what kept concentration in
+    // bounds. (The exact evaluation order across strategy versions within
+    // one scan isn't guaranteed, so this checks the aggregate outcome, not
+    // a specific per-position ordering.)
+    const notionals = openPositions.map((p) => p.entryPrice * p.remainingQuantity);
+    const UNCLAMPED_HALF_SIZE = 1000;
+    const SLIPPAGE_TOLERANCE = 1.01; // a few bps of adverse fill slippage on top of the requested notional
+    for (const notional of notionals) {
+      expect(notional).toBeLessThanOrEqual(UNCLAMPED_HALF_SIZE * SLIPPAGE_TOLERANCE);
+    }
+    const totalNotional = notionals.reduce((s, n) => s + n, 0);
+    expect(totalNotional).toBeLessThan(NUM_VERSIONS * UNCLAMPED_HALF_SIZE);
+    expect(notionals.some((n) => n < UNCLAMPED_HALF_SIZE * 0.999999)).toBe(true);
   });
 
-  it("records a RiskEvent for every candidate blocked by the concentration cap (Fase 2 — RiskEvent was previously a dead table)", async () => {
+  it("records an INFO-severity RiskEvent (not a WARN block) for every candidate whose size was clamped, not rejected (Fase 2 — RiskEvent was previously a dead table)", async () => {
     const riskEvents = await prisma.riskEvent.findMany({ where: { accountId } });
     expect(riskEvents.length).toBeGreaterThan(0);
     expect(riskEvents.every((e) => e.kind === "CONCENTRATION")).toBe(true);
+    expect(riskEvents.every((e) => e.severity === "INFO")).toBe(true);
+    expect(riskEvents.every((e) => e.message.toLowerCase().includes("concentración") || e.message.toLowerCase().includes("reducido"))).toBe(true);
+  });
+});
+
+describe("AUDIT: a genuinely saturated concentration cap still rejects cleanly, never forcing a trade (Risk Level coherence fix)", () => {
+  let saturatedAccountId: string;
+  let saturatedAssetId: string;
+  let seedVersionId: string;
+  let candidateVersionId: string;
+
+  beforeAll(async () => {
+    await prisma.strategy.updateMany({ data: { isActive: false } });
+    await prisma.asset.updateMany({ data: { isActive: false } });
+    // Reactivate the shared `strategy` row (created by the describe block
+    // above, reused here for its new versions) — the blanket deactivate
+    // just above would otherwise leave it inactive and the scan would
+    // never pick up either version created below.
+    await prisma.strategy.update({ where: { id: strategyId }, data: { isActive: true } });
+
+    const asset = await prisma.asset.create({ data: { symbol: `SATC${Date.now() % 100000}`, name: "Saturated Concentration Asset" } });
+    saturatedAssetId = asset.id;
+
+    const allRegimes = toJson(["STRONG_BULL", "BULL", "NEUTRAL", "BEAR", "STRONG_BEAR", "RANGE", "HIGH_VOLATILITY", "LOW_VOLATILITY", "TRANSITION"]);
+    const makeVersion = (version: string) =>
+      prisma.strategyVersion.create({
+        data: {
+          strategyId,
+          version,
+          parameters: toJson({}),
+          timeframe: "H1",
+          allowedMarkets: toJson([]),
+          recommendedRegimes: allRegimes,
+          entryRules: toJson({}),
+          exitRules: toJson({}),
+          filters: toJson({}),
+          costModel: toJson({ feeBps: 10, slippageBps: 5 }),
+        },
+      });
+    // Two DIFFERENT strategy versions on the SAME asset: the pre-seeded
+    // position uses one, the scan's live candidate uses the other — so the
+    // per-(asset, strategyVersion) existingPosition dedup never skips
+    // evaluating the candidate, and it's genuinely the asset-level
+    // concentration cap (summed across BOTH versions) doing the rejecting.
+    seedVersionId = (await makeVersion("saturated-seed-1.0")).id;
+    candidateVersionId = (await makeVersion("saturated-candidate-1.0")).id;
+
+    const account = await prisma.paperAccount.create({
+      data: { userId, name: "Saturated Concentration Account", startingBalance: 10000, cashBalance: 10000, riskLevel: 10 },
+    });
+    saturatedAccountId = account.id;
+
+    // Pre-seed an existing open position that ALREADY sits exactly at the
+    // 45% maxConcentrationPct cap for this account/asset — zero headroom
+    // left, on purpose, so the next candidate has nothing to clamp INTO.
+    await prisma.paperPosition.create({
+      data: {
+        accountId: saturatedAccountId,
+        assetId: saturatedAssetId,
+        strategyVersionId: seedVersionId,
+        direction: "LONG",
+        status: "OPEN",
+        entryPrice: 100,
+        quantity: 45,
+        remainingQuantity: 45, // 45 * 100 = 4500 = exactly 45% of 10000
+        openedAt: new Date(),
+        snapshot: toJson({}),
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.trade.deleteMany({ where: { accountId: saturatedAccountId } });
+    await prisma.positionStateChange.deleteMany({ where: { position: { accountId: saturatedAccountId } } });
+    await prisma.paperPosition.deleteMany({ where: { accountId: saturatedAccountId } });
+    await prisma.paperOrder.deleteMany({ where: { accountId: saturatedAccountId } });
+    await prisma.riskEvent.deleteMany({ where: { accountId: saturatedAccountId } });
+    await prisma.paperAccount.delete({ where: { id: saturatedAccountId } });
+    await prisma.strategyVersion.delete({ where: { id: seedVersionId } });
+    await prisma.strategyVersion.delete({ where: { id: candidateVersionId } });
+    await prisma.asset.delete({ where: { id: saturatedAssetId } });
+  });
+
+  it("rejects the new candidate cleanly (zero quantity) instead of forcing a trade when concentration headroom is already fully saturated", async () => {
+    await runPaperTradingScan(saturatedAccountId);
+
+    const openPositions = await prisma.paperPosition.findMany({
+      where: { accountId: saturatedAccountId, assetId: saturatedAssetId, status: { in: ["OPEN", "PARTIALLY_CLOSED"] } },
+    });
+    // Still exactly the one pre-seeded position — nothing new was forced open.
+    expect(openPositions).toHaveLength(1);
+    expect(openPositions[0].quantity).toBe(45);
+
+    const riskEvents = await prisma.riskEvent.findMany({ where: { accountId: saturatedAccountId, kind: "CONCENTRATION" } });
+    expect(riskEvents.length).toBeGreaterThan(0);
     expect(riskEvents.every((e) => e.severity === "WARN")).toBe(true);
-    expect(riskEvents.every((e) => e.message.toLowerCase().includes("concentración"))).toBe(true);
   });
 });
