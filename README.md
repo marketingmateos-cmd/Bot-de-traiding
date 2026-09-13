@@ -388,12 +388,17 @@ rate and degrades to cache-only rather than ever crashing the app on quota exhau
   (above). All of it runs against a real database via Prisma (SQLite for local
   dev, the desktop app, and Render; a generated Postgres schema for the Vercel deploy path — see
   `scripts/generate-postgres-schema.mjs`), not mocked.
-- **Historical Replay's data is honestly all SYNTHETIC today**: there is no real historical market
-  data, news, sentiment, or on-chain provider wired into this environment (see Provider
-  Abstraction above — only "demo" exists for any of the four). `dataSource: "SYNTHETIC"` is the
-  only mode that actually runs; `"HISTORICAL_REAL"` is fully implemented in the type system and
-  architecture but always honestly returns `HISTORICAL DATA UNAVAILABLE` rather than silently
-  falling back to synthetic data and calling it real (see `historicalDataProvider.ts`). AI mode
+- **Historical Replay's `HISTORICAL_REAL` mode is real, but only as real as what's been imported**
+  (Fase 9/9.1 — see `docs/market-data-import.md`): real OHLCV candles reach the (reactivated)
+  `MarketData` table two ways — the live Binance public API (`scripts/import-historical-market-data.mjs`,
+  no API key, no orders) or a local CSV file (`scripts/import-historical-market-data-from-file.mjs`,
+  `src/lib/marketData/offlineImporter.ts`), both ending in the exact same table/shape
+  (`source` explicit, `isDemo: false`). In THIS sandboxed environment the live Binance path is
+  blocked by network egress policy (confirmed, documented, never worked around) — the CSV path is
+  the one that actually works here today. Nothing has been imported into `dev.db` as shipped, so a
+  fresh checkout's `HISTORICAL_REAL` replay honestly returns `HISTORICAL DATA UNAVAILABLE` until
+  someone runs one of the two importers; `dataSource: "SYNTHETIC"` (`generateHistoricalWalk`)
+  remains completely untouched and is what every demo/screenshot in this repo actually used. AI mode
   `FULL_HISTORICAL` is the one path that can use genuinely real historical evidence — a real
   `AIAnalysis` row the live system already wrote — but only for the rare instant a replay's
   timestamp happens to fall within 30 minutes of one, since months-long replay ranges essentially
