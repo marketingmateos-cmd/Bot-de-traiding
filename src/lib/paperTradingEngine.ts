@@ -40,14 +40,43 @@ export interface ScanCandidateResult {
   steps: unknown;
 }
 
+// Fase 1.A7 — a manual scan (POST /api/paper-trading/scan) and the
+// autonomous bot loop both call runPaperTradingScan for the SAME account,
+// with nothing previously stopping them from running concurrently. Two
+// interleaved scans on one account would each snapshot openPositions/
+// openNotional/assetNotionalByAssetId independently, race on the
+// `existingPosition` duplicate check, and could open duplicate or
+// over-exposed positions — the exact failure mode Fase 1.A3/A4 just fixed
+// WITHIN a single scan, reappearing ACROSS two concurrent scans. Since this
+// is a single persistent Node process (never horizontally scaled — see
+// Fase 4), a simple in-memory per-account lock is enough: a second caller
+// for the same account joins the already-running scan's result instead of
+// starting an independent one.
+const inFlightScans = new Map<string, Promise<ScanCandidateResult[]>>();
+
 /**
  * Runs one full scan cycle for a paper account: for every active
  * (strategy version, asset) pair, evaluate the strategy, run the full Trade
  * Gate, and only open a simulated position on an outright APPROVED verdict.
  * LOW_CONFIDENCE and BLOCKED candidates are still persisted (as rejected
  * orders) so the "why didn't it trade" trail is real, not just logged.
+ *
+ * Concurrency-safe per account (Fase 1.A7): a call for an account that is
+ * already mid-scan reuses that in-flight scan's result rather than running
+ * a second, independent one.
  */
-export async function runPaperTradingScan(accountId: string): Promise<ScanCandidateResult[]> {
+export function runPaperTradingScan(accountId: string): Promise<ScanCandidateResult[]> {
+  const existing = inFlightScans.get(accountId);
+  if (existing) return existing;
+
+  const promise = runPaperTradingScanExclusive(accountId).finally(() => {
+    inFlightScans.delete(accountId);
+  });
+  inFlightScans.set(accountId, promise);
+  return promise;
+}
+
+async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCandidateResult[]> {
   const account = await prisma.paperAccount.findUniqueOrThrow({ where: { id: accountId } });
   const results: ScanCandidateResult[] = [];
 
