@@ -43,6 +43,39 @@ function secondsUntil(iso: string | null): number | null {
   return Math.round((new Date(iso).getTime() - Date.now()) / 1000);
 }
 
+export type WorkerHealth = "UNKNOWN" | "HEALTHY" | "STALLED";
+
+/**
+ * Fase 4 — "worker status" distinct from the bot's ACTIVE/PAUSED trading
+ * intent: this reflects whether the persistent process's self-scheduling
+ * loop (botLoop.ts) is actually still heartbeating, regardless of whether
+ * the bot is currently set to trade. `lastRunAt` updates every single cycle
+ * (see botLoop.ts's `finally` block) whether or not the bot is active or a
+ * cycle found anything to do — so a `lastRunAt` far older than the
+ * configured interval means the worker process itself has died or hung
+ * (crashed, killed externally, stuck in a network call), independent of
+ * whatever the last-known status/badge says. A generous 3x-interval-plus-30s
+ * buffer avoids false alarms from one slow cycle.
+ */
+export function computeWorkerHealth(lastRunAt: string | null, intervalSeconds: number, now = Date.now()): WorkerHealth {
+  if (!lastRunAt) return "UNKNOWN";
+  const ageSeconds = (now - new Date(lastRunAt).getTime()) / 1000;
+  const staleAfter = Math.max(30, intervalSeconds) * 3 + 30;
+  return ageSeconds > staleAfter ? "STALLED" : "HEALTHY";
+}
+
+const WORKER_LABEL: Record<WorkerHealth, string> = {
+  UNKNOWN: "SIN DATOS AÚN",
+  HEALTHY: "EN LÍNEA",
+  STALLED: "SIN RESPUESTA",
+};
+
+const WORKER_TONE: Record<WorkerHealth, BadgeTone> = {
+  UNKNOWN: "muted",
+  HEALTHY: "success",
+  STALLED: "danger",
+};
+
 /**
  * Live bot status + on/off switch (spec §10/§11) — polls its own status
  * every few seconds and refreshes the server-rendered dashboard alongside
@@ -109,6 +142,13 @@ export function BotStatusCard({ marketsMonitored }: { marketsMonitored: number }
   const tone = STATUS_TONE[status] ?? "neutral";
   const lastAgo = secondsAgo(config?.lastRunAt ?? null);
   const nextIn = secondsUntil(config?.nextRunAt ?? null);
+  // Fase 4: the worker (persistent process + self-scheduling loop) is a
+  // distinct concept from the bot's ACTIVE/PAUSED trading intent — this
+  // reflects whether botLoop.ts is still actually heartbeating at all,
+  // which matters most precisely when the bot is ACTIVE and the app
+  // window is closed (Electron keeps running in the tray — see
+  // electron/main.js — so this should stay HEALTHY even then).
+  const workerHealth = computeWorkerHealth(config?.lastRunAt ?? null, config?.intervalSeconds ?? 60);
 
   return (
     <div className="rounded-lg border border-bg-border bg-bg-card p-4">
@@ -116,6 +156,9 @@ export function BotStatusCard({ marketsMonitored }: { marketsMonitored: number }
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-slate-100">BOT</span>
           <Badge tone={tone}>{label}</Badge>
+          <span className="text-[11px] text-muted">·</span>
+          <span className="text-[11px] text-muted">Worker:</span>
+          <Badge tone={WORKER_TONE[workerHealth]}>{WORKER_LABEL[workerHealth]}</Badge>
         </div>
         <button
           onClick={toggle}
@@ -134,6 +177,11 @@ export function BotStatusCard({ marketsMonitored }: { marketsMonitored: number }
         {lastAgo !== null ? `Último análisis: hace ${lastAgo}s` : "Aún no ha corrido ningún ciclo"}
         {config?.isActive && nextIn !== null && nextIn > 0 ? ` · Próximo escaneo en ${nextIn}s` : ""}
       </p>
+      {workerHealth === "STALLED" && (
+        <p className="mt-1 text-[11px] text-danger">
+          El proceso en segundo plano no ha respondido en el intervalo esperado — puede haberse detenido. Cierra y vuelve a abrir la aplicación si esto persiste.
+        </p>
+      )}
     </div>
   );
 }

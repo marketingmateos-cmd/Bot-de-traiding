@@ -15,4 +15,20 @@ function isServerRunning(serverProcess) {
   return Boolean(serverProcess) && serverProcess.exitCode === null && !serverProcess.killed;
 }
 
-module.exports = { isServerRunning };
+// Fase 4 — "Bot 24/7": closing every window used to always quit the whole
+// app on Windows/Linux, which (via the app's own before-quit handler) also
+// killed the server child process — so an ACTIVE bot, mid-scan, stopped the
+// instant the user closed the window. This is the decision the
+// window-all-closed handler makes: quit for real only when the user
+// explicitly asked to (the tray's "Salir" item, or the OS quitting the app)
+// or when there's no active bot to lose by quitting; otherwise stay running
+// in the background (main.js creates a tray icon in that case) so the
+// server — and its self-scheduling loop — keeps going exactly as it does
+// with the window open.
+function shouldQuitOnAllWindowsClosed({ isQuitting, botActive, platform }) {
+  if (isQuitting) return platform !== "darwin";
+  if (!botActive) return platform !== "darwin";
+  return false; // active bot, user didn't ask to quit — stay in the tray instead
+}
+
+module.exports = { isServerRunning, shouldQuitOnAllWindowsClosed };

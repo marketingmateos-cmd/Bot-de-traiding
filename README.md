@@ -135,11 +135,34 @@ hook](https://nextjs.org/docs/app/building-your-application/optimizing/instrumen
 
 `BOT ON/OFF` is a plain boolean on `BotConfig`, flipped from Settings or the Dashboard's status
 card (`POST /api/bot/toggle`); `GET /api/bot/status` is what the Dashboard polls for the live
-status badge/countdown. **This only runs continuously on a persistent Node process** — the
-Electron desktop app and a Render/Railway deploy both qualify. A serverless deploy (Vercel) tears
-down the process between requests, so `setTimeout` can't survive there; that path would need a
-real external cron hitting an API route instead, which isn't wired up since the desktop app is the
-primary target.
+status badge/countdown, alongside a separate **Worker** badge (`computeWorkerHealth` in
+`BotStatusCard.tsx`) — HEALTHY/STALLED/UNKNOWN based on how stale `BotConfig.lastRunAt` is versus
+the configured interval. This is a deliberately distinct signal from the bot's ACTIVE/PAUSED
+trading intent: it answers "is the persistent process's loop still actually heartbeating at all",
+which matters most right after closing the desktop window (see below).
+
+**This only runs continuously on a persistent Node process** — the Electron desktop app and a
+Render/Railway deploy both qualify (recommended path for 24/7 unattended operation). A serverless
+deploy (Vercel) tears down the process between requests, so `setTimeout` can't survive there; that
+path would need a real external cron hitting an API route instead, which isn't wired up since the
+desktop app is the primary target. `runPaperTradingScan` itself is also safe against overlapping
+calls on the same account (an in-memory in-flight map in `paperTradingEngine.ts` — a manual scan
+and the autonomous loop firing at the same moment join the same result instead of racing).
+
+**Bot 24/7 — closing the desktop window doesn't stop an active bot** (`electron/main.js`,
+`electron/serverLifecycle.js`): the Next.js server (and its self-scheduling loop) is a separate
+child process from the window — closing the window was never actually *required* to kill it, but
+before this fix `window-all-closed` called `app.quit()` unconditionally on Windows/Linux, which
+did. Now, on window close, the app asks the running server whether the bot is currently active
+(`GET /api/bot/status`); if so, it hides into a system tray icon instead of quitting — the server
+process, and therefore the loop, keeps running exactly as it does with the window open. The tray's
+"Salir" item (or quitting an inactive bot normally) is what actually stops it. Reopening the window
+later (from the tray, or the dock on macOS) never spawns a second server: `isServerRunning` in
+`serverLifecycle.js` checks the existing child process is still alive first (this is also what
+fixed a pre-existing macOS `activate` bug that used to spawn a duplicate server on every dock
+re-click). Safe restart: if the server process ever does die (crash, force-kill, OS restart),
+the next window open runs the same startup path as a first launch — migration, then server spawn
+— against the same on-disk database, so no state is lost and no manual recovery step is needed.
 
 The `1-10` risk slider (`resolveRiskLimitsForLevel` in `riskEngine.ts`) is the real input to
 position sizing, max exposure, max open positions, and the daily-loss/drawdown circuit breakers —

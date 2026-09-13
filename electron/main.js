@@ -4,13 +4,13 @@
 // in this user's app-data folder, waits for it to come up, then opens a
 // normal window pointed at it. No external server, no Postgres, no
 // Codespaces/terminal for the user to manage.
-const { app, BrowserWindow, shell, dialog } = require("electron");
+const { app, BrowserWindow, shell, dialog, Tray, Menu } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
 const { spawn } = require("node:child_process");
-const { isServerRunning } = require("./serverLifecycle");
+const { isServerRunning, shouldQuitOnAllWindowsClosed } = require("./serverLifecycle");
 
 const isPackaged = app.isPackaged;
 const resourcesDir = isPackaged ? process.resourcesPath : path.join(__dirname, "..");
@@ -18,6 +18,9 @@ const appDir = path.join(resourcesDir, "app"); // .next/standalone contents
 const serverScript = path.join(appDir, "server.js");
 const migrateScript = path.join(__dirname, "migrate.js");
 const templateDb = path.join(resourcesDir, "template.db");
+// Packaged builds get this via extraResources (see package.json); in dev
+// mode it's read straight from build-resources/ since nothing gets copied.
+const trayIconPath = isPackaged ? path.join(resourcesDir, "icon.ico") : path.join(__dirname, "..", "build-resources", "icon.ico");
 
 const userDataDir = app.getPath("userData");
 const dbPath = path.join(userDataDir, "crypto-ai-trading-lab.db");
@@ -31,6 +34,8 @@ const LISTEN_HOST = "0.0.0.0";
 
 let serverProcess = null;
 let mainWindow = null;
+let tray = null;
+let isQuitting = false; // set only by the tray's "Salir" item / OS quit — see Fase 4 below
 
 function getLanUrls() {
   const interfaces = os.networkInterfaces();
@@ -67,6 +72,67 @@ function waitForServer(url, timeoutMs = 20000) {
         });
     };
     attempt();
+  });
+}
+
+// Fase 4 — asks the running server (single source of truth: BotConfig in
+// the DB, the same row the Dashboard/Settings read and write) whether the
+// bot is currently active, so window-all-closed can decide whether it's
+// safe to fully quit or whether an active bot needs to keep running in the
+// background. Best-effort: any failure (server not up yet, bad JSON) is
+// treated as "not active" so a broken check never traps the user unable to
+// close the app.
+function fetchBotIsActive() {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${PORT}/api/bot/status`, (res) => {
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => {
+        try {
+          resolve(Boolean(JSON.parse(body)?.config?.isActive));
+        } catch {
+          resolve(false);
+        }
+      });
+    });
+    req.on("error", () => resolve(false));
+    req.setTimeout(2000, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+function ensureTray() {
+  if (tray) return;
+  try {
+    tray = new Tray(trayIconPath);
+  } catch {
+    return; // missing icon file (e.g. a dev checkout without build-resources) — tray is a convenience, never fatal
+  }
+  tray.setToolTip("Crypto AI Trading Lab — el bot sigue corriendo en segundo plano");
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "Abrir Crypto AI Trading Lab",
+        click: () => {
+          if (BrowserWindow.getAllWindows().length === 0) createWindow();
+          else mainWindow?.show();
+        },
+      },
+      { type: "separator" },
+      {
+        label: "Salir (detiene el bot)",
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        },
+      },
+    ])
+  );
+  tray.on("click", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else mainWindow?.show();
   });
 }
 
@@ -175,6 +241,10 @@ async function createWindow() {
 
   mainWindow.loadURL(`http://127.0.0.1:${PORT}/dashboard`);
 
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+
   const lanUrls = getLanUrls();
   if (lanUrls.length > 0) {
     dialog.showMessageBox(mainWindow, {
@@ -202,8 +272,24 @@ async function createWindow() {
 
 app.whenReady().then(createWindow);
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+// Fase 4 fix — "Bot 24/7": closing the window used to always quit the whole
+// app on Windows/Linux (`app.quit()` here, which `before-quit` below then
+// used to kill the server) — meaning an ACTIVE bot, mid-scan, stopped the
+// instant the user closed the window. Now: if the bot is active, the
+// window closing just hides the app into the system tray — the server
+// (and its self-scheduling loop, per botLoop.ts) keeps running exactly as
+// it does today when the app is fully open. Only an inactive bot, or the
+// tray's own "Salir" item, actually quits and stops the server.
+app.on("window-all-closed", async () => {
+  const botActive = isQuitting ? false : await fetchBotIsActive();
+  if (shouldQuitOnAllWindowsClosed({ isQuitting, botActive, platform: process.platform })) {
+    app.quit();
+    return;
+  }
+  // Only the active-bot case needs the tray (a way back in without the
+  // dock/taskbar icon) — an inactive bot on macOS keeps the pre-existing
+  // behavior of just staying in the dock, no tray, reopened via `activate`.
+  if (botActive) ensureTray();
 });
 
 app.on("activate", () => {
@@ -211,6 +297,7 @@ app.on("activate", () => {
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
   if (serverProcess && !serverProcess.killed) {
     serverProcess.kill();
   }
