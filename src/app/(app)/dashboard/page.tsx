@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { StatTile } from "@/components/ui/StatTile";
 import { Badge, verdictTone } from "@/components/ui/Badge";
 import { BotStatusCard } from "@/components/dashboard/BotStatusCard";
+import { RiskLevelSlider } from "@/components/settings/RiskProfileForm";
 import { tDirection, tExitReason, tRiskProfile } from "@/lib/i18n";
 import { fromJson } from "@/lib/json";
 import type { AIAnalystOutput } from "@/lib/providers/types";
@@ -123,6 +124,13 @@ export default async function DashboardPage() {
       )}
 
       <BotStatusCard marketsMonitored={assets.length} />
+
+      <Card
+        title="Risk Level"
+        subtitle="Editable directamente aquí — se aplica a partir del próximo escaneo, sin ir a Ajustes"
+      >
+        <RiskLevelSlider accountId={ACCOUNT_ID} current={riskLevel} />
+      </Card>
 
       <Card
         title="Today"
