@@ -563,6 +563,36 @@ model BotConfig {
   updatedAt          DateTime  @updatedAt
 }
 
+// Fase 6 — "Daily Profit Protection" (see engines/dailyProfitProtection.ts).
+// A state machine (NORMAL / PROFIT_PROTECTION / HARD_DAILY_STOP) driven by
+// real realized+unrealized daily P&L against the account's own starting
+// equity for the day — never an AI opinion. Persistent/editable from
+// Settings, single source of truth for every scan (mirrors BotConfig).
+model ProfitProtectionConfig {
+  id                             String   @id @default("main")
+  accountId                      String   @default("main-paper-account")
+  isEnabled                      Boolean  @default(true)
+  // Daily P&L% (realized+unrealized vs start-of-day equity) at or above
+  // this enters PROFIT_PROTECTION: new trades need the "exceptional
+  // opportunity" exception below; open positions are still managed normally.
+  profitProtectionTriggerPct     Float    @default(3)
+  // Daily P&L% at or below this enters HARD_DAILY_STOP: NO new trades at
+  // all, no exception — only open-position management continues.
+  hardStopLossPct                Float    @default(-5)
+  // The "exceptional opportunity" exception while in PROFIT_PROTECTION must
+  // be quantitative and verifiable — never "the AI says it's good" alone.
+  // ALL of these must hold (see checkExceptionalOpportunity):
+  exceptionalMinConfidence       Float    @default(0.85) // AI Analyst confidence floor
+  exceptionalMinEvidenceLevel    String   @default("MEDIUM") // luckVsEdge evidenceLevel: LOW < MEDIUM < HIGH — real trade history required, not a fresh strategy
+  exceptionalSizeMultiplier      Float    @default(0.5) // even an exceptional trade sizes down while protecting the day's gains
+  // Last state seen (NORMAL/PROFIT_PROTECTION/HARD_DAILY_STOP), so
+  // paperTradingEngine.ts only raises a SystemAlert on a STATE TRANSITION,
+  // not on every single scan cycle spent in the same state.
+  lastState                      String   @default("NORMAL")
+  lastStateAt                    DateTime?
+  updatedAt                      DateTime @updatedAt
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // SYSTEM HEALTH / AUDIT
 // ─────────────────────────────────────────────────────────────────────────

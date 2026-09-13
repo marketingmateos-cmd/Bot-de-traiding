@@ -24,9 +24,19 @@ function baseInput(overrides: Partial<TradeGateInput> = {}): TradeGateInput {
     circuitBreakerTripped: false,
     circuitBreakerReasons: [],
     robustness: assessEvidence({ trades: 0, winRate: 0, avgReturnPct: 0, sharpe: null, sortino: null, maxDrawdownPct: 0, totalNetPnl: 0, profitFactor: null }),
+    dailyProfitProtection: null,
     ...overrides,
   };
 }
+
+const profitProtectionConfig = {
+  isEnabled: true,
+  profitProtectionTriggerPct: 3,
+  hardStopLossPct: -5,
+  exceptionalMinConfidence: 0.85,
+  exceptionalMinEvidenceLevel: "MEDIUM" as const,
+  exceptionalSizeMultiplier: 0.5,
+};
 
 const goodEvidence = assessEvidence(
   { trades: 150, winRate: 0.55, avgReturnPct: 0.5, sharpe: 1.2, sortino: 1.5, maxDrawdownPct: 8, totalNetPnl: 50, profitFactor: 1.8 },
@@ -99,8 +109,76 @@ describe("runTradeGate", () => {
     expect(onChainStep.downgrade).toBe(true);
   });
 
-  it("always runs all 11 checks regardless of earlier failures (full audit trail)", () => {
+  it("always runs all 12 checks regardless of earlier failures (full audit trail)", () => {
     const result = runTradeGate(baseInput({ dataQuality: { score: 10, issues: [], blocksTrading: true }, circuitBreakerTripped: true }));
-    expect(result.steps).toHaveLength(11);
+    expect(result.steps).toHaveLength(12);
+  });
+
+  describe("DAILY_PROFIT_PROTECTION (Fase 6)", () => {
+    it("passes unconditionally when the feature doesn't apply (null)", () => {
+      const result = runTradeGate(baseInput({ robustness: goodEvidence, dailyProfitProtection: null }));
+      const step = result.steps.find((s) => s.name === "DAILY_PROFIT_PROTECTION")!;
+      expect(step.passed).toBe(true);
+      expect(result.verdict).toBe("APPROVED");
+    });
+
+    it("passes unconditionally in state NORMAL", () => {
+      const result = runTradeGate(baseInput({ robustness: goodEvidence, dailyProfitProtection: { state: "NORMAL", config: profitProtectionConfig } }));
+      expect(result.verdict).toBe("APPROVED");
+    });
+
+    it("hard-blocks every candidate in HARD_DAILY_STOP, even an otherwise-perfect one — no exception exists for this state", () => {
+      const result = runTradeGate(
+        baseInput({
+          robustness: goodEvidence,
+          aiAnalyst: { signal: "LONG", confidence: 0.99, reasons: [], risks: [], invalidation_conditions: [], data_quality: 100, recommendation: "APPROVE" },
+          dailyProfitProtection: { state: "HARD_DAILY_STOP", config: profitProtectionConfig },
+        })
+      );
+      expect(result.verdict).toBe("BLOCKED");
+      expect(result.blockedBy).toBe("DAILY_PROFIT_PROTECTION");
+    });
+
+    it("blocks a candidate in PROFIT_PROTECTION that doesn't clear the quantitative exceptional-opportunity bar", () => {
+      // Fresh strategy (zero trades -> LOW evidence) — never exceptional,
+      // no matter what the AI says.
+      const result = runTradeGate(
+        baseInput({
+          robustness: assessEvidence({ trades: 0, winRate: 0, avgReturnPct: 0, sharpe: null, sortino: null, maxDrawdownPct: 0, totalNetPnl: 0, profitFactor: null }),
+          aiAnalyst: { signal: "LONG", confidence: 0.99, reasons: [], risks: [], invalidation_conditions: [], data_quality: 100, recommendation: "APPROVE" },
+          dailyProfitProtection: { state: "PROFIT_PROTECTION", config: profitProtectionConfig },
+        })
+      );
+      expect(result.verdict).toBe("BLOCKED");
+      expect(result.blockedBy).toBe("DAILY_PROFIT_PROTECTION");
+    });
+
+    it("allows a candidate in PROFIT_PROTECTION when it genuinely clears every quantitative exceptional-opportunity criterion", () => {
+      const result = runTradeGate(
+        baseInput({
+          robustness: goodEvidence, // HIGH evidence, real track record
+          aiAnalyst: { signal: "LONG", confidence: 0.95, reasons: [], risks: [], invalidation_conditions: [], data_quality: 100, recommendation: "APPROVE" },
+          aiCritic: { verdict: "APPROVED", challengedReasons: [], biasesFound: [], overfittingConcern: false, notes: "" },
+          dailyProfitProtection: { state: "PROFIT_PROTECTION", config: profitProtectionConfig },
+        })
+      );
+      expect(result.verdict).toBe("APPROVED");
+    });
+
+    it("still blocks in PROFIT_PROTECTION if some OTHER check already downgraded the gate, even with high AI confidence", () => {
+      // Sentiment divergence downgrades the pre-protection verdict to
+      // LOW_CONFIDENCE — the exceptional-opportunity bar requires a clean
+      // APPROVED from everything else, so this must be blocked too.
+      const result = runTradeGate(
+        baseInput({
+          robustness: goodEvidence,
+          aiAnalyst: { signal: "LONG", confidence: 0.95, reasons: [], risks: [], invalidation_conditions: [], data_quality: 100, recommendation: "APPROVE" },
+          sentiment: { current: 0.2, trend: 0.01, acceleration: 0, divergence: true, divergenceMagnitude: 0.5, score: 60 },
+          dailyProfitProtection: { state: "PROFIT_PROTECTION", config: profitProtectionConfig },
+        })
+      );
+      expect(result.verdict).toBe("BLOCKED");
+      expect(result.blockedBy).toBe("DAILY_PROFIT_PROTECTION");
+    });
   });
 });

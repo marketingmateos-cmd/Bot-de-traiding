@@ -8,6 +8,7 @@ import type { OnChainMetricResult } from "@/lib/providers/types";
 import type { AIAnalystOutput, AICriticOutput } from "@/lib/providers/types";
 import type { RiskCheckResult } from "./riskEngine";
 import type { LuckVsEdgeAssessment } from "./luckVsEdge";
+import { checkExceptionalOpportunity, type ProfitProtectionConfigLike, type ProfitProtectionState } from "./dailyProfitProtection";
 
 export type GateVerdict = "APPROVED" | "LOW_CONFIDENCE" | "BLOCKED";
 
@@ -23,7 +24,8 @@ export interface GateStep {
     | "AI_ANALYST"
     | "AI_CRITIC"
     | "RISK_CHECK"
-    | "ROBUSTNESS_CHECK";
+    | "ROBUSTNESS_CHECK"
+    | "DAILY_PROFIT_PROTECTION";
   passed: boolean;
   downgrade: boolean; // true = doesn't block outright but forces LOW_CONFIDENCE
   detail: string;
@@ -45,6 +47,15 @@ export interface TradeGateInput {
   circuitBreakerTripped: boolean;
   circuitBreakerReasons: string[];
   robustness: LuckVsEdgeAssessment;
+  /**
+   * Fase 6 — Daily Profit Protection. `null` when the feature doesn't apply
+   * to this evaluation (e.g. backtesting, which has its own separate P&L
+   * framing) — in that case the step passes unconditionally.
+   */
+  dailyProfitProtection: {
+    state: ProfitProtectionState;
+    config: ProfitProtectionConfigLike;
+  } | null;
 }
 
 export interface TradeGateResult {
@@ -55,10 +66,12 @@ export interface TradeGateResult {
 
 /**
  * Trade Gate (spec §18) — the ONLY path from "a strategy has an idea" to "a
- * simulated order is placed". Runs all 11 checks every time (never
+ * simulated order is placed". Runs all 12 checks every time (never
  * short-circuits) so the full audit trail is always available, then derives
  * a verdict: any failed non-downgrade step BLOCKS; any downgrade-only issue
- * caps the verdict at LOW_CONFIDENCE.
+ * caps the verdict at LOW_CONFIDENCE. The 12th (DAILY_PROFIT_PROTECTION,
+ * Fase 6) is derived from the other 11's own intermediate verdict, so it
+ * never short-circuits ahead of them either.
  */
 export function runTradeGate(input: TradeGateInput): TradeGateResult {
   const steps: GateStep[] = [];
@@ -162,6 +175,50 @@ export function runTradeGate(input: TradeGateInput): TradeGateResult {
     downgrade: input.robustness.evidenceLevel === "LOW",
     detail: `Nivel de evidencia: ${input.robustness.evidenceLevel}. ${input.robustness.warnings.join(" ")}`,
   });
+
+  // Fase 6 — Daily Profit Protection. Computed from the OTHER 11 checks'
+  // own intermediate verdict (never circular: this step never looks at
+  // itself), since the "exceptional opportunity" exception requires that
+  // verdict to already be a clean APPROVED — see dailyProfitProtection.ts.
+  const preProtectionFailed = steps.find((s) => !s.passed);
+  const preProtectionDowngrade = steps.find((s) => s.downgrade);
+  const preProtectionVerdict: GateVerdict = preProtectionFailed ? "BLOCKED" : preProtectionDowngrade ? "LOW_CONFIDENCE" : "APPROVED";
+
+  if (input.dailyProfitProtection === null || input.dailyProfitProtection.state === "NORMAL") {
+    steps.push({
+      name: "DAILY_PROFIT_PROTECTION",
+      passed: true,
+      downgrade: false,
+      detail: input.dailyProfitProtection === null ? "Daily Profit Protection no aplica a esta evaluación." : "Estado NORMAL — sin restricciones adicionales.",
+    });
+  } else if (input.dailyProfitProtection.state === "HARD_DAILY_STOP") {
+    steps.push({
+      name: "DAILY_PROFIT_PROTECTION",
+      passed: false,
+      downgrade: false, // hard stop — never just a confidence haircut, no exception exists for this state
+      detail: "HARD_DAILY_STOP: se alcanzó el límite de pérdida diaria — no se abren nuevas operaciones hoy bajo ninguna circunstancia.",
+    });
+  } else {
+    // PROFIT_PROTECTION: blocked unless the quantitative "exceptional
+    // opportunity" bar is cleared — see checkExceptionalOpportunity's own
+    // doc comment for why this can never reduce to "the AI says it's good".
+    const exceptional = checkExceptionalOpportunity({
+      config: input.dailyProfitProtection.config,
+      aiAnalystConfidence: input.aiAnalyst.confidence,
+      aiAnalystRecommendation: input.aiAnalyst.recommendation,
+      aiCriticVerdict: input.aiCritic.verdict,
+      evidenceLevel: input.robustness.evidenceLevel,
+      gateVerdictWithoutProfitProtection: preProtectionVerdict,
+    });
+    steps.push({
+      name: "DAILY_PROFIT_PROTECTION",
+      passed: exceptional.isExceptional,
+      downgrade: false,
+      detail: exceptional.isExceptional
+        ? "PROFIT_PROTECTION activo, pero esta señal supera el listón cuantitativo de 'oportunidad excepcional' — se permite a tamaño reducido."
+        : `PROFIT_PROTECTION activo — señal bloqueada por no ser una oportunidad excepcional verificable: ${exceptional.reasons.join(" ")}`,
+    });
+  }
 
   const failedStep = steps.find((s) => !s.passed);
   const downgradeStep = steps.find((s) => s.downgrade);

@@ -3,6 +3,7 @@ import { getMarketDataProvider } from "@/lib/providers/registry";
 import { ensureBotConfig } from "@/lib/botLoop";
 import { riskPresetForLevel } from "@/lib/engines/riskEngine";
 import { computeDrawdown } from "@/lib/engines/riskEngine";
+import { computeProfitProtectionStatus } from "@/lib/engines/dailyProfitProtection";
 import { Card } from "@/components/ui/Card";
 import { StatTile } from "@/components/ui/StatTile";
 import { Badge, verdictTone } from "@/components/ui/Badge";
@@ -16,8 +17,11 @@ import Link from "next/link";
 export const dynamic = "force-dynamic";
 const ACCOUNT_ID = "main-paper-account";
 
+const PROFIT_PROTECTION_TONE = { NORMAL: "success", PROFIT_PROTECTION: "warn", HARD_DAILY_STOP: "danger" } as const;
+const PROFIT_PROTECTION_LABEL = { NORMAL: "Normal", PROFIT_PROTECTION: "Protección de Beneficios", HARD_DAILY_STOP: "Parada Diaria" } as const;
+
 export default async function DashboardPage() {
-  const [account, openPositions, recentTrades, alerts, breakers, assets, botConfig] = await Promise.all([
+  const [account, openPositions, recentTrades, alerts, breakers, assets, botConfig, profitProtection] = await Promise.all([
     prisma.paperAccount.findUnique({ where: { id: ACCOUNT_ID } }),
     prisma.paperPosition.findMany({
       where: { accountId: ACCOUNT_ID, status: { in: ["OPEN", "PARTIALLY_CLOSED"] } },
@@ -29,6 +33,7 @@ export default async function DashboardPage() {
     prisma.circuitBreaker.findMany({ where: { isTripped: true } }),
     prisma.asset.findMany({ where: { isActive: true } }),
     ensureBotConfig(),
+    computeProfitProtectionStatus(ACCOUNT_ID),
   ]);
 
   const marketProvider = getMarketDataProvider();
@@ -123,6 +128,19 @@ export default async function DashboardPage() {
         </Card>
       )}
 
+      {profitProtection.state !== "NORMAL" && (
+        <Card className={profitProtection.state === "HARD_DAILY_STOP" ? "border-danger/40 bg-danger/5" : "border-warn/40 bg-warn/5"}>
+          <div className="flex items-center gap-2">
+            <Badge tone={PROFIT_PROTECTION_TONE[profitProtection.state]}>{PROFIT_PROTECTION_LABEL[profitProtection.state]}</Badge>
+            <span className="font-mono text-xs text-slate-200">
+              P&L hoy: {profitProtection.dailyPnlPct >= 0 ? "+" : ""}
+              {profitProtection.dailyPnlPct.toFixed(2)}%
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-slate-300">{profitProtection.reason}</p>
+        </Card>
+      )}
+
       <BotStatusCard marketsMonitored={assets.length} />
 
       <Card
@@ -155,6 +173,12 @@ export default async function DashboardPage() {
         <StatTile label="No Realizado" value={`${unrealizedPnl >= 0 ? "+" : ""}€${unrealizedPnl.toFixed(2)}`} tone={unrealizedPnl >= 0 ? "positive" : "negative"} />
         <StatTile label="Posiciones Abiertas" value={openPositions.length} />
         <StatTile label="Risk Level" value={`${riskLevel}/10`} sublabel={tRiskProfile(riskPresetForLevel(riskLevel))} />
+        <StatTile
+          label="Protección de Beneficios"
+          value={PROFIT_PROTECTION_LABEL[profitProtection.state]}
+          sublabel={`P&L hoy: ${profitProtection.dailyPnlPct >= 0 ? "+" : ""}${profitProtection.dailyPnlPct.toFixed(2)}%`}
+          tone={profitProtection.state === "HARD_DAILY_STOP" ? "negative" : profitProtection.state === "PROFIT_PROTECTION" ? "neutral" : "positive"}
+        />
       </div>
 
       <Card

@@ -1,19 +1,24 @@
 import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getBudgetStatus } from "@/lib/engines/aiBudget";
+import { computeProfitProtectionStatus } from "@/lib/engines/dailyProfitProtection";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatTile } from "@/components/ui/StatTile";
 import { RiskLevelSlider } from "@/components/settings/RiskProfileForm";
 import { CircuitBreakerList } from "@/components/settings/CircuitBreakerList";
+import { ProfitProtectionForm } from "@/components/settings/ProfitProtectionForm";
 
 export const dynamic = "force-dynamic";
 const ACCOUNT_ID = "main-paper-account";
+
+const PROFIT_PROTECTION_TONE = { NORMAL: "success", PROFIT_PROTECTION: "warn", HARD_DAILY_STOP: "danger" } as const;
 
 export default async function SettingsPage() {
   const account = await prisma.paperAccount.findUnique({ where: { id: ACCOUNT_ID } });
   const breakers = await prisma.circuitBreaker.findMany({ orderBy: { name: "asc" } });
   const budget = await getBudgetStatus();
+  const profitProtection = await computeProfitProtectionStatus(ACCOUNT_ID);
 
   return (
     <div className="flex flex-col gap-5">
@@ -47,6 +52,30 @@ export default async function SettingsPage() {
 
       <Card title="Cortafuegos">
         <CircuitBreakerList breakers={breakers} accountId={ACCOUNT_ID} />
+      </Card>
+
+      <Card
+        title="Daily Profit Protection"
+        subtitle="Estado real, calculado a partir del P&L del día — nunca una opinión de la IA"
+      >
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <Badge tone={PROFIT_PROTECTION_TONE[profitProtection.state]}>{profitProtection.state}</Badge>
+          <span className="font-mono text-sm text-slate-100">
+            P&L hoy: {profitProtection.dailyPnlPct >= 0 ? "+" : ""}
+            {profitProtection.dailyPnlPct.toFixed(2)}%
+          </span>
+          <span className="text-xs text-muted">{profitProtection.reason}</span>
+        </div>
+        <ProfitProtectionForm
+          current={{
+            isEnabled: profitProtection.config.isEnabled,
+            profitProtectionTriggerPct: profitProtection.config.profitProtectionTriggerPct,
+            hardStopLossPct: profitProtection.config.hardStopLossPct,
+            exceptionalMinConfidence: profitProtection.config.exceptionalMinConfidence,
+            exceptionalMinEvidenceLevel: profitProtection.config.exceptionalMinEvidenceLevel,
+            exceptionalSizeMultiplier: profitProtection.config.exceptionalSizeMultiplier,
+          }}
+        />
       </Card>
     </div>
   );

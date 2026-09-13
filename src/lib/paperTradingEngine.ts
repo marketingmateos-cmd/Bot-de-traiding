@@ -4,6 +4,7 @@ import { getStrategyById } from "@/lib/engines/strategy";
 import { getAIProvider } from "@/lib/providers/registry";
 import { getBudgetStatus, recordAIUsage, getCached, setCached } from "@/lib/engines/aiBudget";
 import { runTradeGate } from "@/lib/engines/tradeGate";
+import { ensureProfitProtectionConfig, evaluateProfitProtection, toEvidenceLevel } from "@/lib/engines/dailyProfitProtection";
 import { calculatePositionSize, checkExposureLimits, correlation, resolveRiskLimitsForLevel } from "@/lib/engines/riskEngine";
 import { evaluateCircuitBreakers, anyBreakerTripped } from "@/lib/engines/circuitBreakers";
 import { reconcilePositions, openPosition, recordRejectedOrder } from "@/lib/engines/positionStateManager";
@@ -167,6 +168,52 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
     running += t.netPnl;
     peak = Math.max(peak, running);
     if (peak > 0) maxDrawdownPct = Math.max(maxDrawdownPct, ((peak - running) / peak) * 100);
+  }
+
+  // Fase 6 — Daily Profit Protection: driven by real, measured equity
+  // numbers, never an AI opinion. startOfDayEquity is the account's
+  // realized equity at the start of today (UTC); currentEquity adds
+  // today's realized P&L plus unrealized P&L on currently open positions
+  // (from the last tickPositions mark-to-market — positionLifecycle.ts).
+  // Deliberate simplification: a position opened before today that's still
+  // open counts its FULL unrealized P&L as "today's", since this system
+  // doesn't keep an equity snapshot at the exact day boundary.
+  const startOfDayEquity = account.startingBalance + allTrades.filter((t) => t.closedAt < todayStart).reduce((s, t) => s + t.netPnl, 0);
+  const unrealizedPnlForProtection = openPositions.reduce((s, p) => s + p.unrealizedPnl, 0);
+  const profitProtectionConfigRow = await ensureProfitProtectionConfig(accountId);
+  const profitProtectionConfig = {
+    isEnabled: profitProtectionConfigRow.isEnabled,
+    profitProtectionTriggerPct: profitProtectionConfigRow.profitProtectionTriggerPct,
+    hardStopLossPct: profitProtectionConfigRow.hardStopLossPct,
+    exceptionalMinConfidence: profitProtectionConfigRow.exceptionalMinConfidence,
+    exceptionalMinEvidenceLevel: toEvidenceLevel(profitProtectionConfigRow.exceptionalMinEvidenceLevel),
+    exceptionalSizeMultiplier: profitProtectionConfigRow.exceptionalSizeMultiplier,
+  };
+  const profitProtection = evaluateProfitProtection({
+    startOfDayEquity,
+    currentEquity: account.cashBalance + unrealizedPnlForProtection,
+    config: profitProtectionConfig,
+  });
+
+  // Every block must log its reason (Fase 6), but only ONCE per state
+  // transition, not on every single scan cycle spent in the same state —
+  // mirrors how circuitBreakers.ts alerts only when a breaker newly trips.
+  if (profitProtectionConfigRow.lastState !== profitProtection.state) {
+    await prisma.profitProtectionConfig.update({
+      where: { id: profitProtectionConfigRow.id },
+      data: { lastState: profitProtection.state, lastStateAt: new Date() },
+    });
+    await createSystemAlert({
+      kind: "DAILY_PROFIT_PROTECTION",
+      severity: profitProtection.state === "HARD_DAILY_STOP" ? "CRITICAL" : profitProtection.state === "PROFIT_PROTECTION" ? "WARN" : "INFO",
+      title: `Daily Profit Protection: ${profitProtectionConfigRow.lastState} → ${profitProtection.state}`,
+      message: profitProtection.reason,
+    });
+    await logAudit({ action: "DAILY_PROFIT_PROTECTION_STATE_CHANGE", entity: "PaperAccount", entityId: accountId, data: profitProtection });
+  }
+
+  if (profitProtection.state === "HARD_DAILY_STOP") {
+    return results; // open positions are still managed by tickPositions (positionLifecycle.ts), independent of this scan — no new trades, no exception
   }
 
   const riskLimits = resolveRiskLimitsForLevel(account.riskLevel);
@@ -420,6 +467,7 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
         circuitBreakerTripped: breakerStatus.tripped,
         circuitBreakerReasons: breakerStatus.reasons,
         robustness: evidence,
+        dailyProfitProtection: { state: profitProtection.state, config: profitProtectionConfig },
       });
 
       // Fase 2 fix — RiskEvent was a fully dead table (never written to).
@@ -453,8 +501,20 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
       // LOW_CONFIDENCE still executes — at half size — so a brand-new
       // strategy version can accumulate the real trade history that
       // Robustness/Luck-vs-Edge need to ever move it past LOW_CONFIDENCE.
-      // Only an outright BLOCKED verdict never trades.
-      const sizeMultiplier = gate.verdict === "APPROVED" ? 1 : gate.verdict === "LOW_CONFIDENCE" ? 0.5 : 0;
+      // Only an outright BLOCKED verdict never trades. Fase 6: an APPROVED
+      // verdict reached only via the PROFIT_PROTECTION "exceptional
+      // opportunity" exception sizes down further still — protecting the
+      // day's gains means even a verified exceptional trade takes less risk.
+      const profitProtectionStep = gate.steps.find((s) => s.name === "DAILY_PROFIT_PROTECTION");
+      const isExceptionalProfitProtectionTrade =
+        profitProtection.state === "PROFIT_PROTECTION" && gate.verdict === "APPROVED" && profitProtectionStep?.passed === true;
+      const sizeMultiplier = gate.verdict === "APPROVED"
+        ? isExceptionalProfitProtectionTrade
+          ? profitProtectionConfig.exceptionalSizeMultiplier
+          : 1
+        : gate.verdict === "LOW_CONFIDENCE"
+        ? 0.5
+        : 0;
       const executedQuantity = sizing.quantity * sizeMultiplier;
 
       if (executedQuantity > 0) {

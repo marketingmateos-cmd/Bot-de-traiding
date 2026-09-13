@@ -177,18 +177,21 @@ Each spec module maps to one file: `dataQuality.ts`, `features.ts` (indicators),
 (stop/target ticking + mark-to-market), `tradeGate.ts`, `circuitBreakers.ts`, `backtest.ts`,
 `walkForward.ts`, `monteCarlo.ts`, `robustness.ts`, `overfitting.ts`, `benchmark.ts`,
 `hypothesis.ts`, `postMortem.ts`, `luckVsEdge.ts`, `strategyLeague.ts`, `anomalyDetector.ts`,
-`aiBudget.ts`, `auditLog.ts`, `alerts.ts`. All are plain, mostly-pure TypeScript — no framework
-coupling — which is what makes the 80-test Vitest suite possible without mocking half the app.
+`aiBudget.ts`, `auditLog.ts`, `alerts.ts`, `dailyProfitProtection.ts` (Fase 6, below). All are
+plain, mostly-pure TypeScript — no framework coupling — which is what makes the Vitest suite
+possible without mocking half the app.
 
 ### The Trade Gate (`tradeGate.ts`)
 
-Runs **all 11 checks every time**, never short-circuiting, so the UI can always show the full
+Runs **all 12 checks every time**, never short-circuiting, so the UI can always show the full
 audit trail (see the Paper Trading screen: every blocked/low-confidence candidate shows exactly
 which check stopped it and why). A failed non-downgrade check → `BLOCKED`. A downgrade-only issue
 (sentiment/price divergence, missing on-chain data, thin evidence) → `LOW_CONFIDENCE`, which the
 Paper Trading Engine executes at **half size**, never full size — enough to keep accumulating the
 real trade history that Robustness/Luck-vs-Edge need, without betting the account on a hypothesis
-the system itself isn't confident in.
+the system itself isn't confident in. The 12th check, `DAILY_PROFIT_PROTECTION` (Fase 6, below),
+is derived from the other 11's own intermediate verdict rather than looking at its own raw inputs,
+so it never short-circuits ahead of them either.
 
 ### Reproducibility (spec #54)
 
@@ -214,7 +217,51 @@ Six independent breakers (max daily loss, max drawdown, max trades/day, data cor
 down, position inconsistency) live in the `CircuitBreaker` table and are evaluated on every scan.
 A tripped breaker blocks **all** new paper trades regardless of what the Trade Gate says. Loss/
 drawdown breakers require a manual reset (Risk Center or Settings); transient ones (API health,
-data quality, reconciliation) auto-clear once the underlying condition resolves.
+data quality, reconciliation) auto-clear once the underlying condition resolves. **Fase 5 — "Max
+Trades" is no longer the primary risk firewall**: trade *count* was never a real proxy for risk,
+so `MAX_TRADES` was demoted to a pure technical safety ceiling (a runaway-loop guard, raised from
+25 to 300/day) rather than a trading rule. The real controls are capital-at-risk based: per-trade
+risk sizing, aggregate exposure, per-asset **concentration**, and — new in Fase 5 — **correlation**
+(`riskEngine.ts`'s `correlation()`), which sums the notional of *other* open positions whose recent
+bar-close returns move with the candidate above a `0.7` threshold. This exists because several
+different-but-correlated assets (e.g. BTC and ETH moving together) can quietly recreate the exact
+concentrated bet the same-asset concentration check alone can't see, since each individually looks
+like an unrelated position.
+
+### Daily Profit Protection (Fase 6) — `dailyProfitProtection.ts`
+
+A state machine — `NORMAL` / `PROFIT_PROTECTION` / `HARD_DAILY_STOP` — driven **only** by the
+account's own real, measured numbers: today's realized P&L (closed trades) plus unrealized P&L
+(open positions, from the last mark-to-market) against the account's own equity at the start of
+today (UTC). Never an AI opinion, and never hardcoded — every threshold lives in the persistent,
+Settings-editable `ProfitProtectionConfig` row (defaults: protect gains at `+3%`, hard-stop losses
+at `-5%`).
+
+- **`NORMAL`** — no restriction; the Trade Gate's 12th check passes unconditionally.
+- **`PROFIT_PROTECTION`** (today's gain ≥ the trigger) — every new candidate is **blocked** unless
+  it clears a purely quantitative "exceptional opportunity" bar
+  (`checkExceptionalOpportunity`): the Trade Gate's other 11 checks must already resolve to a clean
+  `APPROVED` (no downgrade anywhere else), the AI Analyst must recommend `APPROVE` above a
+  configured confidence floor, the AI Critic must return `APPROVED`, **and** the strategy version
+  must have a genuine, verified track record (`luckVsEdge.ts`'s evidence level at or above the
+  configured minimum — `MEDIUM` by default, meaning 30+ real closed trades). All of these must hold
+  at once; none of them alone — including a high AI confidence number — is ever sufficient by
+  itself. This is deliberate: the spec explicitly forbids letting "the AI says it's good" be the
+  exception on its own. A trade that does clear the bar still executes at a reduced size
+  (`exceptionalSizeMultiplier`, default `0.5`) — protecting the day's gains never fully disappears
+  even for a verified exception.
+- **`HARD_DAILY_STOP`** (today's loss ≤ the hard floor) — **no exception exists for this state**:
+  the scan returns before evaluating any candidate at all (no AI budget spent), full stop on new
+  risk for the rest of the day.
+
+In every state, **open positions are still managed** — `positionLifecycle.tickPositions` (stops,
+targets, mark-to-market) runs independently of and prior to the scan in `botLoop.ts`, so Daily
+Profit Protection blocking *new* trades never means abandoning risk management on what's already
+open. Every state transition (not every scan cycle — that would spam duplicate alerts every
+~60s) logs a `SystemAlert` and an audit log entry with the real numbers behind it, and both the
+Dashboard and Settings pages surface the live state, today's P&L%, and the human-readable reason
+(`computeProfitProtectionStatus`). Configuration (trigger/floor thresholds, the exceptional-opportunity
+criteria, and the reduced size) is edited from Settings and takes effect on the next scan.
 
 ### No look-ahead, ever (spec #23)
 
@@ -257,8 +304,9 @@ rate and degrades to cache-only rather than ever crashing the app on quota exhau
 
 - **Real**: all indicator math, regime detection, backtest/walk-forward/Monte Carlo engines, risk
   sizing, fee/slippage simulation, the full Trade Gate, position state machine + reconciliation,
-  circuit breakers, post-mortem classification, strategy versioning, AI budget tracking, and the
-  autonomous bot loop (above). All of it runs against a real database via Prisma (SQLite for local
+  circuit breakers, correlation-aware exposure limits, Daily Profit Protection (Fase 6, above),
+  post-mortem classification, strategy versioning, AI budget tracking, and the autonomous bot loop
+  (above). All of it runs against a real database via Prisma (SQLite for local
   dev, the desktop app, and Render; a generated Postgres schema for the Vercel deploy path — see
   `scripts/generate-postgres-schema.mjs`), not mocked.
 - **Multi-asset (V3)**: `Asset.assetClass` (`CRYPTO` | `FOREX` | `METALS`) exists in the schema and
