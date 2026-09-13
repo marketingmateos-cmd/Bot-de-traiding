@@ -13,7 +13,22 @@ import { createSystemAlert } from "@/lib/engines/alerts";
 import { logAudit } from "@/lib/engines/auditLog";
 import type { AIAnalystInput, AIAnalystOutput, AICriticOutput, TimeframeCode } from "@/lib/providers/types";
 import type { Regime } from "@/lib/engines/regime";
+import type { StrategyContext } from "@/lib/engines/strategy/types";
 import { fromJson, toJson } from "@/lib/json";
+
+// Fase 1.A6 — the next higher timeframe used to feed Multi-Timeframe's
+// required `higherTimeframeTrend` context (see strategy/multiTimeframe.ts,
+// which explicitly refuses to fire without it). D1 has no higher timeframe
+// available, so it maps to itself (Multi-Timeframe on D1 is treated as
+// already-highest and skipped below).
+const HIGHER_TIMEFRAME: Record<TimeframeCode, TimeframeCode> = {
+  M1: "M15",
+  M5: "H1",
+  M15: "H1",
+  H1: "H4",
+  H4: "D1",
+  D1: "D1",
+};
 
 export interface ScanCandidateResult {
   symbol: string;
@@ -112,7 +127,32 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
       if (existingPosition) continue;
 
       const versionParams = fromJson<Record<string, number | string | boolean>>(version.parameters, {});
-      const signal = strategyDef.evaluate(analysis.bars, analysis.features, versionParams, analysis.regime.regime);
+
+      // Fase 1.A6 — Multi-Timeframe and Event-Driven both structurally
+      // refuse to fire without a StrategyContext (see their `evaluate`
+      // implementations), but this call previously never passed one at
+      // all, silently reducing both to permanently-dead strategies in live
+      // paper trading. Built lazily, per strategy kind, only when needed.
+      let strategyContext: StrategyContext | undefined;
+      if (strategyDef.kind === "MULTI_TIMEFRAME") {
+        const higherTimeframe = HIGHER_TIMEFRAME[timeframe];
+        if (higherTimeframe !== timeframe) {
+          const higherAnalysis = await getSymbolAnalysis(asset.symbol, higherTimeframe);
+          if (higherAnalysis.features) {
+            strategyContext = { higherTimeframeTrend: higherAnalysis.features.trend };
+          }
+        }
+      } else if (strategyDef.kind === "EVENT_DRIVEN") {
+        const topStory = analysis.news.topStories.reduce<(typeof analysis.news.topStories)[number] | null>(
+          (best, item) => (!best || item.impactScore > best.impactScore ? item : best),
+          null
+        );
+        if (topStory) {
+          strategyContext = { newsImpactScore: topStory.impactScore, newsSentiment: topStory.sentiment };
+        }
+      }
+
+      const signal = strategyDef.evaluate(analysis.bars, analysis.features, versionParams, analysis.regime.regime, strategyContext);
 
       const breakers = await evaluateCircuitBreakers({
         accountId,
