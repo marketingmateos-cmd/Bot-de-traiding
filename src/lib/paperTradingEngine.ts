@@ -11,7 +11,7 @@ import { getStrategyPerformanceStats } from "@/lib/engines/strategyStats";
 import { assessEvidence } from "@/lib/engines/luckVsEdge";
 import { createSystemAlert } from "@/lib/engines/alerts";
 import { logAudit } from "@/lib/engines/auditLog";
-import type { AIAnalystInput, TimeframeCode } from "@/lib/providers/types";
+import type { AIAnalystInput, AIAnalystOutput, AICriticOutput, TimeframeCode } from "@/lib/providers/types";
 import type { Regime } from "@/lib/engines/regime";
 import { fromJson, toJson } from "@/lib/json";
 
@@ -174,21 +174,85 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
         riskContext: { accountEquity: equity, openExposurePct: equity > 0 ? openNotional / equity : 1 },
       };
 
-      const cacheKey = `analyst:${asset.symbol}:${version.id}:${analysis.regime.regime}:${signal.direction}:${Math.round(signal.strength * 10)}`;
-      let analystResult = budget.shouldUseCacheOnly ? getCached<Awaited<ReturnType<typeof aiProvider.analyze>>>(cacheKey) : null;
-      let usedCache = analystResult !== null;
+      // Fase 1.A5 — real AI budget enforcement for BOTH Analyst and Critic.
+      // Previously: the cache was only ever consulted once the daily budget
+      // was ALREADY exhausted (so a healthy budget meant every single
+      // candidate paid for a fresh call, defeating the point of caching),
+      // and the Critic had no budget/cache gating at all — it always called
+      // out regardless of `shouldUseCacheOnly`. Now: the cache is checked
+      // first unconditionally for both, and once the budget is genuinely
+      // exhausted with no cached answer available, the engine degrades to a
+      // conservative, clearly-labeled fallback instead of spending more
+      // budget or (worse) silently skipping the check — the fallback always
+      // downgrades to LOW_CONFIDENCE, never fabricates an APPROVE.
+      const analystCacheKey = `analyst:${asset.symbol}:${version.id}:${analysis.regime.regime}:${signal.direction}:${Math.round(signal.strength * 10)}`;
+      let analystResult = getCached<Awaited<ReturnType<typeof aiProvider.analyze>>>(analystCacheKey);
+      const analystUsedCache = analystResult !== null;
+      let analystIsBudgetFallback = false;
       if (!analystResult) {
-        analystResult = await aiProvider.analyze(analystInput);
-        setCached(cacheKey, analystResult);
+        if (budget.shouldUseCacheOnly) {
+          analystIsBudgetFallback = true;
+          const fallbackOutput: AIAnalystOutput = {
+            signal: signal.direction,
+            confidence: 0.4,
+            reasons: [],
+            risks: ["Presupuesto diario de IA agotado — este es un resultado de reserva conservador, no una evaluación real de la IA Analista."],
+            invalidation_conditions: [],
+            data_quality: 50,
+            recommendation: "LOW_CONFIDENCE",
+          };
+          analystResult = { output: fallbackOutput, tokensIn: 0, tokensOut: 0, model: "budget-exhausted-fallback" };
+        } else {
+          analystResult = await aiProvider.analyze(analystInput);
+          setCached(analystCacheKey, analystResult);
+        }
       }
-      await recordAIUsage({ tokensIn: analystResult.tokensIn, tokensOut: analystResult.tokensOut, cached: usedCache });
+      if (!analystIsBudgetFallback) {
+        await recordAIUsage({ tokensIn: analystResult.tokensIn, tokensOut: analystResult.tokensOut, cached: analystUsedCache });
+      }
 
-      const criticResult = await aiProvider.critique({
-        analyst: analystResult.output,
-        context: analystInput,
-        historicalStrategyStats: { trades: stats.trades, winRate: stats.winRate, sharpe: stats.sharpe },
-      });
-      await recordAIUsage({ tokensIn: criticResult.tokensIn, tokensOut: criticResult.tokensOut, cached: false });
+      // Throttle (approaching, but not yet at, the budget limit): skip the
+      // Critic call when the Analyst already recommends REJECT — the Trade
+      // Gate blocks outright on AI_ANALYST alone in that case (see
+      // tradeGate.ts), so critiquing an already-rejected candidate spends
+      // budget without ever changing the outcome.
+      const criticCacheKey = `critic:${asset.symbol}:${version.id}:${analystResult.output.recommendation}:${analystResult.output.signal}:${Math.round(analystResult.output.confidence * 10)}`;
+      let criticResult = getCached<Awaited<ReturnType<typeof aiProvider.critique>>>(criticCacheKey);
+      const criticUsedCache = criticResult !== null;
+      let criticIsBudgetFallback = false;
+      if (!criticResult) {
+        if (budget.shouldUseCacheOnly) {
+          criticIsBudgetFallback = true;
+          const fallbackOutput: AICriticOutput = {
+            verdict: "LOW_CONFIDENCE",
+            challengedReasons: ["Presupuesto diario de IA agotado — no se realizó una revisión crítica real de la IA."],
+            biasesFound: [],
+            overfittingConcern: true,
+            notes: "IA Crítica omitida por presupuesto agotado — resultado de reserva conservador.",
+          };
+          criticResult = { output: fallbackOutput, tokensIn: 0, tokensOut: 0, model: "budget-exhausted-fallback" };
+        } else if (budget.shouldThrottle && analystResult.output.recommendation === "REJECT") {
+          criticIsBudgetFallback = true;
+          const fallbackOutput: AICriticOutput = {
+            verdict: "LOW_CONFIDENCE",
+            challengedReasons: ["Revisión crítica omitida (presupuesto de IA cerca del límite) — la IA Analista ya rechazó esta señal, lo que bloquea la operación de todos modos."],
+            biasesFound: [],
+            overfittingConcern: false,
+            notes: "Omitido por throttling de presupuesto — el veredicto del Trade Gate no depende de este resultado porque AI_ANALYST ya bloquea.",
+          };
+          criticResult = { output: fallbackOutput, tokensIn: 0, tokensOut: 0, model: "budget-throttle-skip" };
+        } else {
+          criticResult = await aiProvider.critique({
+            analyst: analystResult.output,
+            context: analystInput,
+            historicalStrategyStats: { trades: stats.trades, winRate: stats.winRate, sharpe: stats.sharpe },
+          });
+          setCached(criticCacheKey, criticResult);
+        }
+      }
+      if (!criticIsBudgetFallback) {
+        await recordAIUsage({ tokensIn: criticResult.tokensIn, tokensOut: criticResult.tokensOut, cached: criticUsedCache });
+      }
 
       await prisma.aIAnalysis.createMany({
         data: [
@@ -201,7 +265,7 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
             model: analystResult.model,
             tokensIn: analystResult.tokensIn,
             tokensOut: analystResult.tokensOut,
-            cached: usedCache,
+            cached: analystUsedCache,
           },
           {
             kind: "CRITIC",
@@ -212,6 +276,7 @@ export async function runPaperTradingScan(accountId: string): Promise<ScanCandid
             model: criticResult.model,
             tokensIn: criticResult.tokensIn,
             tokensOut: criticResult.tokensOut,
+            cached: criticUsedCache,
           },
         ],
       });

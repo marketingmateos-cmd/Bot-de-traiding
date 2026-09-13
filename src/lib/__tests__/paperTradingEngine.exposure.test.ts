@@ -104,6 +104,13 @@ let accountId: string;
 const NUM_ASSETS = 5; // one strategy version, five distinct assets — one candidate per asset, no cross-strategy/same-asset interaction to muddy the result
 
 beforeAll(async () => {
+  // runPaperTradingScan scans every ACTIVE strategy version × asset in the
+  // whole DB by design — deactivate any pre-existing rows so this test only
+  // ever sees its own fixtures, regardless of other test files' leftovers
+  // in this shared test DB.
+  await prisma.strategy.updateMany({ data: { isActive: false } });
+  await prisma.asset.updateMany({ data: { isActive: false } });
+
   const user = await prisma.user.create({ data: { email: `exposure-audit-${Date.now()}@example.com`, name: "Exposure Audit" } });
   userId = user.id;
 
