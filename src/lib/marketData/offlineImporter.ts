@@ -62,11 +62,25 @@ interface RowError {
 
 const RESERVED_LIVE_API_SOURCE = "binance";
 
-/** Pure digits only — epoch. 13 digits is milliseconds, 10 digits is seconds; anything else is ambiguous and rejected rather than guessed. */
+/**
+ * Pure digits only — epoch. 10 digits is seconds, 13 is milliseconds, 16 is
+ * microseconds; any other digit length is ambiguous and rejected rather
+ * than guessed.
+ *
+ * The 16-digit (microsecond) case is converted via BigInt rather than
+ * `Number()`: a real microsecond timestamp (e.g. `1754006400000000`) can
+ * exceed `Number.MAX_SAFE_INTEGER` (~9.007e15, 16 digits) once past the
+ * year ~2255 doesn't matter here, but more importantly `Number("...")` on
+ * a 16-digit string already risks silently rounding the last 1-2 digits
+ * on some inputs — BigInt division truncates exactly, with no float
+ * rounding, before converting down to a plain millisecond number (which
+ * is always well within the safe integer range).
+ */
 function parseEpochDigits(raw: string): number | null {
   if (!/^\d+$/.test(raw)) return null;
-  if (raw.length === 13) return Number(raw);
-  if (raw.length === 10) return Number(raw) * 1000;
+  if (raw.length === 10) return Number(raw) * 1000; // seconds -> ms
+  if (raw.length === 13) return Number(raw); // already ms
+  if (raw.length === 16) return Number(BigInt(raw) / BigInt(1000)); // microseconds -> ms, exact integer division
   return null; // ambiguous digit length — never guessed
 }
 
@@ -81,7 +95,9 @@ function parseTimestampStrict(raw: string): { ms: number } | { error: string } {
   if (epochMs !== null) return { ms: epochMs };
 
   if (/^\d+$/.test(trimmed)) {
-    return { error: `timestamp numérico con ${trimmed.length} dígitos — no se puede determinar de forma inequívoca si es epoch en segundos (10) o milisegundos (13); nunca se adivina` };
+    return {
+      error: `timestamp numérico con ${trimmed.length} dígitos — no se puede determinar de forma inequívoca si es epoch en segundos (10), milisegundos (13) o microsegundos (16); nunca se adivina`,
+    };
   }
 
   if (ISO_8601_PATTERN.test(trimmed)) {
@@ -90,7 +106,7 @@ function parseTimestampStrict(raw: string): { ms: number } | { error: string } {
     return { ms };
   }
 
-  return { error: `formato de timestamp no reconocido: "${trimmed}" (se aceptan ISO-8601 o epoch de 10/13 dígitos)` };
+  return { error: `formato de timestamp no reconocido: "${trimmed}" (se aceptan ISO-8601 o epoch de 10/13/16 dígitos)` };
 }
 
 function parseNumberStrict(raw: string, fieldName: string): number | { error: string } {

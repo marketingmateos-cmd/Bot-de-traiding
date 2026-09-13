@@ -134,6 +134,61 @@ describe("Fase 9.1 test #4 — timestamp inválido/ambiguo nunca se adivina", ()
     expect(stats.inserted).toBe(2);
     await cleanupRange("BTC", "H1", SOURCE, ms, ms + 3_600_000);
   });
+
+  it("rejects a 14-digit or 15-digit numeric timestamp as ambiguous — never guessed as a truncated/extended microsecond value", async () => {
+    const file = writeRawCsv("bad-digit-lengths", "timestamp,open,high,low,close,volume\n17550432000000,100,101,99,100,10\n175504320000000,101,102,100,101,10");
+    const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source: SOURCE });
+    expect(stats.invalid).toBe(2);
+    expect(stats.inserted).toBe(0);
+  });
+
+  it("rejects a 17-digit numeric timestamp as ambiguous (one digit too many for microseconds)", async () => {
+    const file = writeRawCsv("bad-17-digit", "timestamp,open,high,low,close,volume\n17550432000000000,100,101,99,100,10");
+    const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source: SOURCE });
+    expect(stats.invalid).toBe(1);
+    expect(stats.inserted).toBe(0);
+  });
+
+  describe("epoch de 16 dígitos (microsegundos)", () => {
+    const hourMs = Date.UTC(2015, 3, 1, 3); // disjoint hour from every other block in this file
+    afterAll(() => cleanupRange("BTC", "H1", SOURCE, hourMs, hourMs + 3_600_000));
+
+    it("converts a valid 16-digit microsecond epoch to the exact correct Date, losslessly", async () => {
+      const micros = BigInt(hourMs) * BigInt(1000); // exact, no fractional microseconds — a real exchange export wouldn't have any either
+      expect(micros.toString()).toHaveLength(16);
+      const file = writeRawCsv("valid-micros", `timestamp,open,high,low,close,volume\n${micros.toString()},100,101,99,100.5,10`);
+
+      const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source: SOURCE });
+      expect(stats.invalid).toBe(0);
+      expect(stats.inserted).toBe(1);
+      expect(stats.firstTimestamp?.getTime()).toBe(hourMs); // exact round-trip, not off by any rounding
+
+      const asset = await prisma.asset.findUniqueOrThrow({ where: { symbol: "BTC" } });
+      const row = await prisma.marketData.findFirstOrThrow({ where: { assetId: asset.id, timeframe: "H1", source: SOURCE, timestamp: new Date(hourMs) } });
+      expect(row.timestamp.getTime()).toBe(hourMs);
+    });
+
+    it("truncates a microsecond timestamp with a non-zero sub-millisecond remainder down to the millisecond, without throwing", async () => {
+      const micros = BigInt(hourMs) * BigInt(1000) + BigInt(999); // .999 of a microsecond-fraction beyond the exact ms boundary
+      const file = writeRawCsv("micros-remainder", `timestamp,open,high,low,close,volume\n${micros.toString()},100,101,99,100.5,10`);
+      const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source: SOURCE });
+      expect(stats.invalid).toBe(0);
+      expect(stats.firstTimestamp?.getTime()).toBe(hourMs); // sub-ms remainder is truncated, never rounded up into the next candle
+    });
+
+    it("handles a 16-digit value large enough to exceed Number.MAX_SAFE_INTEGER's safe integer arithmetic if done via plain Number()", async () => {
+      // A far-future date whose microsecond value is comfortably past
+      // Number.MAX_SAFE_INTEGER (9_007_199_254_740_991) — proves the
+      // BigInt path, not floating-point Number() math, is what's used.
+      const farMs = Date.UTC(2260, 0, 1); // ~9,246,960,000,000 ms -> 16-digit micros, near/above MAX_SAFE_INTEGER territory
+      const micros = BigInt(farMs) * BigInt(1000);
+      const file = writeRawCsv("micros-large", `timestamp,open,high,low,close,volume\n${micros.toString()},100,101,99,100.5,10`);
+      const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source: SOURCE });
+      expect(stats.invalid).toBe(0);
+      expect(stats.firstTimestamp?.getTime()).toBe(farMs);
+      await cleanupRange("BTC", "H1", SOURCE, farMs, farMs);
+    });
+  });
 });
 
 describe("Fase 9.1 tests #5/#6/#7 — orden, duplicados y huecos", () => {
