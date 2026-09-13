@@ -11,11 +11,18 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   const assetSymbols = fromJson<string[]>(run.assetSymbols, []);
 
-  // Fase 9 — only meaningful for a real replay: how much of BTC/ETH/SOL's
-  // (etc.) actually-imported Binance history this run's assets have,
-  // computed fresh from MarketData every time (never cached/stale).
+  // Fase 9/9.1.11 — only meaningful for a real replay: how much of this
+  // run's assets' actually-imported real history exists, computed fresh
+  // from MarketData every time (never cached/stale). The `source` filter
+  // is deliberately OMITTED: DbBackedHistoricalMarketDataProvider (which
+  // actually served this replay's bars) never filters by source either —
+  // any real (isDemo:false) row counts, regardless of which import path
+  // wrote it — so the coverage shown here must mirror that exactly rather
+  // than assuming a single hardcoded source string like "binance" that
+  // would silently miss rows imported via a CSV backfill. Each report's
+  // own `sources` field then shows exactly which real source(s) were found.
   const marketDataCoverage =
-    run.dataSource === "HISTORICAL_REAL" ? await Promise.all(assetSymbols.map((symbol) => computeMarketDataCoverage(symbol, run.timeframe as TimeframeCode, "binance"))) : null;
+    run.dataSource === "HISTORICAL_REAL" ? await Promise.all(assetSymbols.map((symbol) => computeMarketDataCoverage(symbol, run.timeframe as TimeframeCode))) : null;
 
   return NextResponse.json({
     ok: true,

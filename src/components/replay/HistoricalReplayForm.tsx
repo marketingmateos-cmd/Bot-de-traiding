@@ -277,6 +277,7 @@ function MarketDataSourceCard({ run }: { run: RunDetail }) {
             <thead className="text-slate-400">
               <tr>
                 <th className="pb-1 pr-3">Activo</th>
+                <th className="pb-1 pr-3">Fuente(s) real(es)</th>
                 <th className="pb-1 pr-3">Cobertura</th>
                 <th className="pb-1 pr-3">Velas</th>
                 <th className="pb-1 pr-3">Primera</th>
@@ -289,6 +290,7 @@ function MarketDataSourceCard({ run }: { run: RunDetail }) {
               {run.marketDataCoverage.map((c) => (
                 <tr key={c.symbol} className="border-t border-bg-border/60">
                   <td className="py-1 pr-3 font-semibold">{c.symbol}</td>
+                  <td className="py-1 pr-3 font-mono">{c.sources.length > 0 ? c.sources.join(", ") : "—"}</td>
                   <td className="py-1 pr-3">{c.coveragePct !== null ? `${c.coveragePct.toFixed(1)}%` : "—"}</td>
                   <td className="py-1 pr-3">{c.rowCount}</td>
                   <td className="py-1 pr-3">{c.firstTimestamp ? new Date(c.firstTimestamp).toLocaleDateString() : "—"}</td>

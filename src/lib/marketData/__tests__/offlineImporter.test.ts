@@ -430,10 +430,11 @@ describe("Fase 9.1 tests #12/#13 — aislamiento REAL/SYNTHETIC y anti-look-ahea
     await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
 
     const provider = new DbBackedHistoricalMarketDataProvider();
-    const bars = await provider.getHistoricalBars("BTC", "H1", new Date(startMs), new Date(endMs));
+    const { bars, realSources } = await provider.getHistoricalBars("BTC", "H1", new Date(startMs), new Date(endMs));
     // The generic DB-backed provider filters by isDemo:false only (not by
     // a specific source string) — CSV rows are just as REAL as API rows.
     expect(bars).toHaveLength(count);
+    expect(realSources).toEqual([source]); // the CSV import's own explicit source label, never "binance"
   });
 
   it("barsAsOf(csvImportedBars, T) never returns a bar with timestamp greater than T", async () => {

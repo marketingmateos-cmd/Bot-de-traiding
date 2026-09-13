@@ -29,11 +29,14 @@ async function main() {
     process.exit(1);
   }
   const symbols = args.symbol.split(",").map((s) => s.trim()).filter(Boolean);
-  const source = args.source ?? "binance";
+  // Omit entirely (rather than defaulting to "binance") when --source isn't
+  // given: computeMarketDataCoverage then reports across every real source
+  // found, matching what the replay pipeline itself actually reads.
+  const source = args.source;
 
   for (const symbol of symbols) {
     const report = await computeMarketDataCoverage(symbol, args.timeframe, source);
-    console.log(`--- ${report.symbol} @ ${report.timeframe} (${report.source}) ---`);
+    console.log(`--- ${report.symbol} @ ${report.timeframe} (${report.sources.length > 0 ? report.sources.join(", ") : "sin datos"}) ---`);
     console.log(`  rows:        ${report.rowCount}`);
     console.log(`  first:       ${report.firstTimestamp ?? "—"}`);
     console.log(`  last:        ${report.lastTimestamp ?? "—"}`);

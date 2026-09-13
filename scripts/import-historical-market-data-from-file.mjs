@@ -101,7 +101,7 @@ async function main() {
     const internalSymbol = resolveInternalSymbol(args.symbol).internalSymbol;
     const coverage = await computeMarketDataCoverage(internalSymbol, args.timeframe, args.source);
     console.log();
-    console.log(`--- Cobertura MarketData: ${coverage.symbol} @ ${coverage.timeframe} (${coverage.source}) ---`);
+    console.log(`--- Cobertura MarketData: ${coverage.symbol} @ ${coverage.timeframe} (${coverage.sources.join(", ")}) ---`);
     console.log(`  Velas:      ${coverage.rowCount}`);
     console.log(`  Cobertura:  ${coverage.coveragePct !== null ? coverage.coveragePct.toFixed(2) + "%" : "—"}`);
     console.log(`  Huecos:     ${coverage.gaps.length}`);

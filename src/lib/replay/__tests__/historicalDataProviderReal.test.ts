@@ -26,6 +26,7 @@ describe("Fase 9 test #9 — disponibilidad honesta de HISTORICAL_REAL", () => {
     expect(result.available).toBe(false);
     expect(result.source).toBe("unavailable");
     expect(result.bars).toEqual([]);
+    expect(result.realSources).toEqual([]);
   });
 
   it("reports available:true, source:'binance', marketData=REAL once real candles have been imported", async () => {
@@ -51,6 +52,42 @@ describe("Fase 9 test #9 — disponibilidad honesta de HISTORICAL_REAL", () => {
     expect(result.available).toBe(true);
     expect(result.source).toBe("binance"); // never "synthetic" for real data
     expect(result.bars).toHaveLength(count);
+    expect(result.realSources).toEqual(["binance"]); // this fixture's rows really were seeded with source="binance"
+  });
+});
+
+describe("Fase 9.1.11 test B — HISTORICAL_REAL nunca inventa 'binance' como provenance real", () => {
+  const startMs2 = Date.UTC(2020, 1, 1);
+  const count2 = 10;
+  const endMs2 = startMs2 + (count2 - 1) * stepMs;
+
+  beforeAll(async () => {
+    for (let i = 0; i < count2; i++) {
+      await prisma.marketData.create({
+        data: {
+          assetId,
+          timeframe: "H1",
+          timestamp: new Date(startMs2 + i * stepMs),
+          open: 30 + i,
+          high: 31 + i,
+          low: 29 + i,
+          close: 30.5 + i,
+          volume: 5,
+          source: "binance_csv", // deliberately NOT "binance"
+          isDemo: false,
+          quality: 100,
+        },
+      });
+    }
+  });
+
+  afterAll(() => prisma.marketData.deleteMany({ where: { assetId, timeframe: "H1", source: "binance_csv", timestamp: { gte: new Date(startMs2), lte: new Date(endMs2) } } }));
+
+  it("realSources reports the true 'binance_csv' provenance, even though the route label `source` stays 'binance'", async () => {
+    const result = await getHistoricalBars("SOL", "H1", new Date(startMs2), new Date(endMs2), "HISTORICAL_REAL");
+    expect(result.available).toBe(true);
+    expect(result.source).toBe("binance"); // unchanged 3-way ROUTE indicator — never removed for backward compatibility
+    expect(result.realSources).toEqual(["binance_csv"]); // the actual provenance — never silently relabeled as "binance"
   });
 });
 
@@ -78,10 +115,11 @@ describe("Fase 9 test #10 — anti-look-ahead sobre datos REALES (barsAsOf nunca
 });
 
 describe("Fase 9 test #16 — el modo SYNTHETIC sigue funcionando sin cambios", () => {
-  it("still returns deterministic synthetic bars, tagged source:'synthetic', unaffected by Fase 9", async () => {
+  it("test C — still returns deterministic synthetic bars, tagged source:'synthetic', realSources always empty, unaffected by Fase 9/9.1.11", async () => {
     const result = await getHistoricalBars("SOL", "H1", new Date(startMs), new Date(endMs), "SYNTHETIC");
     expect(result.available).toBe(true);
     expect(result.source).toBe("synthetic");
+    expect(result.realSources).toEqual([]); // no real provenance exists for a synthetic series
     expect(result.bars.length).toBeGreaterThan(0);
   });
 
