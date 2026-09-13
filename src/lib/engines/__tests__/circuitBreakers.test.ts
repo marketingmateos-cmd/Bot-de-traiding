@@ -39,9 +39,18 @@ describe("circuit breakers — pure evaluation logic", () => {
     expect(result.tripped).toBe(true);
   });
 
-  it("trips max-trades once the daily trade count cap is reached", () => {
-    const result = getBreaker("max-trades").evaluate({ ...healthyContext, tradesToday: 25 });
+  it("does NOT trip max-trades for a normal, high-frequency-but-controlled trading day (Fase 5 — trade count is no longer the primary firewall)", () => {
+    // A strategy making many small, well-controlled trades must not be
+    // treated the same as one making a few reckless ones — trade COUNT
+    // alone is deliberately no longer enough to block trading.
+    const result = getBreaker("max-trades").evaluate({ ...healthyContext, tradesToday: 100 });
+    expect(result.tripped).toBe(false);
+  });
+
+  it("trips max-trades only as a technical safety ceiling against a runaway bug, far above any legitimate trading volume", () => {
+    const result = getBreaker("max-trades").evaluate({ ...healthyContext, tradesToday: 300 });
     expect(result.tripped).toBe(true);
+    expect(result.reason).toMatch(/límite técnico de seguridad/);
   });
 
   it("trips data-corruption when data quality drops below the floor", () => {

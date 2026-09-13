@@ -130,9 +130,21 @@ export interface ExposureCheckInput {
    * exposure cap while their combined bet on that one asset does not.
    */
   assetOpenNotional: number;
+  /**
+   * Fase 5 — sum of open notional in OTHER assets (never the candidate's
+   * own — that's `assetOpenNotional`) whose recent returns are highly
+   * correlated with it. Checked against the same maxConcentrationPct so
+   * several different-but-correlated assets (e.g. BTC and ETH moving
+   * together) can't quietly recreate the exact concentrated bet the
+   * same-asset check alone would catch — real portfolio risk, not a
+   * per-symbol technicality. Defaults to 0 (no correlation data available)
+   * so this check is a strict addition, never a new way to be MORE
+   * permissive than before.
+   */
+  correlatedOpenNotional: number;
 }
 
-export type RiskViolationKind = "EXPOSURE" | "POSITION_SIZE" | "CONCENTRATION";
+export type RiskViolationKind = "EXPOSURE" | "POSITION_SIZE" | "CONCENTRATION" | "CORRELATION";
 
 export interface RiskCheckResult {
   passed: boolean;
@@ -164,6 +176,19 @@ export function checkExposureLimits(input: ExposureCheckInput): RiskCheckResult 
       `La concentración proyectada en este activo (${assetConcentrationPctAfter.toFixed(1)}%, sumando todas las estrategias) supera el máximo de ${input.limits.maxConcentrationPct}% por activo.`
     );
     violationKinds.push("CONCENTRATION");
+  }
+
+  // Only meaningful when there IS existing correlated exposure to combine
+  // with — otherwise this would just restate "this one trade is too big"
+  // (already covered by EXPOSURE/CONCENTRATION above) under a misleading
+  // "correlation" label.
+  const correlatedTotalNotional = input.correlatedOpenNotional + input.newNotional;
+  const correlatedConcentrationPctAfter = input.equity > 0 ? (correlatedTotalNotional / input.equity) * 100 : 100;
+  if (input.correlatedOpenNotional > 0 && correlatedConcentrationPctAfter > input.limits.maxConcentrationPct) {
+    violations.push(
+      `La exposición combinada a activos altamente correlacionados con este (${correlatedConcentrationPctAfter.toFixed(1)}%) supera el máximo de concentración de ${input.limits.maxConcentrationPct}% — varios activos correlacionados pueden recrear el mismo riesgo que un único activo sobreconcentrado.`
+    );
+    violationKinds.push("CORRELATION");
   }
 
   return { passed: violations.length === 0, violations, violationKinds, exposurePctAfter };

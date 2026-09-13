@@ -4,7 +4,7 @@ import { getStrategyById } from "@/lib/engines/strategy";
 import { getAIProvider } from "@/lib/providers/registry";
 import { getBudgetStatus, recordAIUsage, getCached, setCached } from "@/lib/engines/aiBudget";
 import { runTradeGate } from "@/lib/engines/tradeGate";
-import { calculatePositionSize, checkExposureLimits, resolveRiskLimitsForLevel } from "@/lib/engines/riskEngine";
+import { calculatePositionSize, checkExposureLimits, correlation, resolveRiskLimitsForLevel } from "@/lib/engines/riskEngine";
 import { evaluateCircuitBreakers, anyBreakerTripped } from "@/lib/engines/circuitBreakers";
 import { reconcilePositions, openPosition, recordRejectedOrder } from "@/lib/engines/positionStateManager";
 import { getStrategyPerformanceStats } from "@/lib/engines/strategyStats";
@@ -29,6 +29,26 @@ const HIGHER_TIMEFRAME: Record<TimeframeCode, TimeframeCode> = {
   H4: "D1",
   D1: "D1",
 };
+
+// Fase 5 — "Eliminar Max Trades como firewall principal": trade COUNT was
+// never the right proxy for risk (see circuitBreakers.ts's MAX_TRADES,
+// demoted to a pure technical safety ceiling, not a trading rule). The real
+// controls are capital-at-risk based: exposure, concentration, drawdown,
+// daily loss, and — wired in here for the first time — correlation. Several
+// DIFFERENT assets that move together (e.g. BTC and ETH) can recreate the
+// exact concentrated bet the same-asset concentration check (Fase 1.A4)
+// exists to catch; a bar-close correlation over recent history is a simple,
+// real signal for "these are actually the same bet economically."
+const CORRELATION_THRESHOLD = 0.7;
+
+function computeReturns(bars: { close: number }[]): number[] {
+  const returns: number[] = [];
+  for (let i = 1; i < bars.length; i++) {
+    const prev = bars[i - 1].close;
+    if (prev > 0) returns.push((bars[i].close - prev) / prev);
+  }
+  return returns;
+}
 
 export interface ScanCandidateResult {
   symbol: string;
@@ -118,6 +138,19 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
     assetNotionalByAssetId.set(p.assetId, (assetNotionalByAssetId.get(p.assetId) ?? 0) + p.entryPrice * p.remainingQuantity);
   }
   const equity = account.cashBalance; // realized-P&L based; unrealized handled by mark-to-market job
+  // Fase 5 — cache of recent-returns series per symbol, reused across
+  // candidates within this same scan so checking correlation against N open
+  // positions never re-fetches the same asset's bars more than once.
+  const returnsBySymbol = new Map<string, number[]>();
+  async function getReturnsForSymbol(symbol: string, timeframe: TimeframeCode): Promise<number[]> {
+    const cacheKey = `${symbol}:${timeframe}`;
+    const cached = returnsBySymbol.get(cacheKey);
+    if (cached) return cached;
+    const otherAnalysis = await getSymbolAnalysis(symbol, timeframe);
+    const returns = computeReturns(otherAnalysis.bars);
+    returnsBySymbol.set(cacheKey, returns);
+    return returns;
+  }
 
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
@@ -213,6 +246,27 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
       const stopLoss = signal.direction === "LONG" ? entryPrice * (1 - stopLossPct / 100) : entryPrice * (1 + stopLossPct / 100);
       const takeProfit = signal.direction === "LONG" ? entryPrice * (1 + takeProfitPct / 100) : entryPrice * (1 - takeProfitPct / 100);
       const sizing = calculatePositionSize({ equity, entryPrice, stopLossPrice: stopLoss, riskPerTradePct: riskLimits.riskPerTradePct });
+
+      // Fase 5 — correlation as a real risk control: sum the notional of
+      // OTHER open assets (never this candidate's own — that's the
+      // same-asset concentration check above) whose recent returns are
+      // highly correlated with it, so several different-but-correlated
+      // assets can't quietly recreate one concentrated bet.
+      const candidateReturns = computeReturns(analysis.bars);
+      const otherAssetIdsWithOpenPositions = new Set(openPositions.filter((p) => p.assetId !== asset.id).map((p) => p.assetId));
+      let correlatedOpenNotional = 0;
+      for (const otherAssetId of otherAssetIdsWithOpenPositions) {
+        const otherAsset = assets.find((a) => a.id === otherAssetId);
+        if (!otherAsset) continue;
+        const otherReturns = await getReturnsForSymbol(otherAsset.symbol, timeframe);
+        const corr = correlation(candidateReturns, otherReturns);
+        if (corr !== null && Math.abs(corr) >= CORRELATION_THRESHOLD) {
+          correlatedOpenNotional += openPositions
+            .filter((p) => p.assetId === otherAssetId)
+            .reduce((sum, p) => sum + p.entryPrice * p.remainingQuantity, 0);
+        }
+      }
+
       const riskCheck = checkExposureLimits({
         equity,
         openNotional,
@@ -220,6 +274,7 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
         limits: riskLimits,
         openPositionCount: openPositions.length,
         assetOpenNotional: assetNotionalByAssetId.get(asset.id) ?? 0,
+        correlatedOpenNotional,
       });
 
       const stats = await getStrategyPerformanceStats(version.id);

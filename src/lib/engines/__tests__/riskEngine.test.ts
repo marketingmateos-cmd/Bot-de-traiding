@@ -36,20 +36,20 @@ describe("checkExposureLimits", () => {
   const limits = resolveRiskLimits("BALANCED");
 
   it("passes when projected exposure is within limits", () => {
-    const result = checkExposureLimits({ equity: 1000, openNotional: 0, newNotional: 100, limits, openPositionCount: 0, assetOpenNotional: 0 });
+    const result = checkExposureLimits({ equity: 1000, openNotional: 0, newNotional: 100, limits, openPositionCount: 0, assetOpenNotional: 0, correlatedOpenNotional: 0 });
     expect(result.passed).toBe(true);
     expect(result.violations).toHaveLength(0);
   });
 
   it("fails when projected exposure exceeds the profile's max", () => {
-    const result = checkExposureLimits({ equity: 1000, openNotional: 400, newNotional: 200, limits, openPositionCount: 0, assetOpenNotional: 0 });
+    const result = checkExposureLimits({ equity: 1000, openNotional: 400, newNotional: 200, limits, openPositionCount: 0, assetOpenNotional: 0, correlatedOpenNotional: 0 });
     // BALANCED maxExposurePct = 50 -> (400+200)/1000 = 60% > 50%
     expect(result.passed).toBe(false);
     expect(result.violations.length).toBeGreaterThan(0);
   });
 
   it("fails when opening would exceed max open positions even if exposure is fine", () => {
-    const result = checkExposureLimits({ equity: 100000, openNotional: 0, newNotional: 1, limits, openPositionCount: limits.maxOpenPositions, assetOpenNotional: 0 });
+    const result = checkExposureLimits({ equity: 100000, openNotional: 0, newNotional: 1, limits, openPositionCount: limits.maxOpenPositions, assetOpenNotional: 0, correlatedOpenNotional: 0 });
     expect(result.passed).toBe(false);
   });
 
@@ -66,6 +66,7 @@ describe("checkExposureLimits", () => {
       limits,
       openPositionCount: 2,
       assetOpenNotional: 400, // all of the existing exposure happens to be in this one asset
+      correlatedOpenNotional: 0,
     });
     expect(result.passed).toBe(false);
     expect(result.violations.some((v) => v.toLowerCase().includes("concentración"))).toBe(true);
@@ -79,6 +80,40 @@ describe("checkExposureLimits", () => {
       limits,
       openPositionCount: 2,
       assetOpenNotional: 0, // this candidate's asset has nothing open yet
+      correlatedOpenNotional: 0,
+    });
+    expect(result.passed).toBe(true);
+  });
+
+  it("fails when notional in OTHER highly-correlated assets, combined with this candidate, exceeds maxConcentrationPct (Fase 5 — correlation as a real control)", () => {
+    // BALANCED maxConcentrationPct 25%. €300 already sits in a DIFFERENT
+    // asset that's highly correlated with this candidate — combined with
+    // the new €100, that's 40% of a €1000 account tied to one correlated
+    // cluster, well past the 25% cap, even though assetOpenNotional (the
+    // SAME asset) is zero.
+    const result = checkExposureLimits({
+      equity: 1000,
+      openNotional: 300,
+      newNotional: 100,
+      limits,
+      openPositionCount: 1,
+      assetOpenNotional: 0,
+      correlatedOpenNotional: 300,
+    });
+    expect(result.passed).toBe(false);
+    expect(result.violationKinds).toContain("CORRELATION");
+    expect(result.violations.some((v) => v.toLowerCase().includes("correlacionado"))).toBe(true);
+  });
+
+  it("does not flag correlation risk when no other open position is correlated with this candidate", () => {
+    const result = checkExposureLimits({
+      equity: 1000,
+      openNotional: 300,
+      newNotional: 100,
+      limits,
+      openPositionCount: 1,
+      assetOpenNotional: 0,
+      correlatedOpenNotional: 0, // nothing else is correlated with this candidate's asset
     });
     expect(result.passed).toBe(true);
   });
@@ -94,6 +129,7 @@ describe("checkExposureLimits", () => {
       limits,
       openPositionCount: limits.maxOpenPositions,
       assetOpenNotional: 90,
+      correlatedOpenNotional: 0,
     });
     expect(result.passed).toBe(false);
     expect(result.violationKinds).toEqual(["EXPOSURE", "POSITION_SIZE", "CONCENTRATION"]);

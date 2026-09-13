@@ -34,7 +34,18 @@ export default async function RiskPage() {
         <StatTile label="Pérdida Diaria Máxima" value={`${limits.maxDailyLossPct}%`} />
         <StatTile label="Drawdown Máximo" value={`${limits.maxDrawdownPct}%`} />
         <StatTile label="Concentración Máx. por Activo" value={`${limits.maxConcentrationPct}%`} sublabel="Suma de todas las estrategias en un mismo activo" />
+        <StatTile
+          label="Concentración Máx. por Correlación"
+          value={`${limits.maxConcentrationPct}%`}
+          sublabel="Activos distintos con retornos muy correlacionados cuentan como una sola posición"
+        />
       </div>
+      <p className="text-xs text-muted">
+        Fase 5: el número de operaciones ya no es el cortafuegos principal — un cortafuego técnico solo protege contra un
+        fallo (p. ej. una estrategia en bucle), muy por encima de cualquier volumen de trading normal. Los límites reales
+        son capital en riesgo: riesgo por operación, exposición máxima, concentración por activo, correlación entre
+        activos, drawdown y pérdida diaria.
+      </p>
 
       <Card title="Cortafuegos" subtitle="Mecanismos de emergencia independientes — un cortafuegos activado bloquea TODAS las nuevas operaciones simuladas hasta resolverse.">
         <CircuitBreakerList breakers={breakers} accountId={ACCOUNT_ID} />

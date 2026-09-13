@@ -28,7 +28,19 @@ export interface BreakerDefinition {
 
 const MAX_DAILY_LOSS_PCT = 5;
 const MAX_DRAWDOWN_PCT = 20;
-const MAX_TRADES_PER_DAY = 25;
+// Fase 5 — "Eliminar Max Trades como firewall principal": this used to be
+// 25/day and function as the DE FACTO primary risk control — a strategy
+// making many small, well-controlled trades got treated identically to one
+// making 25 reckless ones, purely by counting trades, which directly
+// contradicts "una estrategia puede hacer muchas operaciones pequeñas si el
+// riesgo total es aceptable." The REAL controls are capital-at-risk based
+// and already gate every single trade regardless of count: riskPerTradePct
+// (calculatePositionSize), maxExposurePct/maxConcentrationPct/correlation
+// (checkExposureLimits), and maxDailyLossPct/maxDrawdownPct (the two
+// breakers above). This threshold is now only a technical safety ceiling
+// against a genuine bug (e.g. a broken strategy spamming trades in a loop)
+// — high enough that no legitimate trading pattern should ever reach it.
+const MAX_TRADES_PER_DAY = 300;
 const MIN_DATA_QUALITY = 55;
 
 export const BREAKERS: BreakerDefinition[] = [
@@ -49,11 +61,18 @@ export const BREAKERS: BreakerDefinition[] = [
         : { tripped: false },
   },
   {
+    // Fase 5: a technical safety guard against a runaway bug (e.g. a
+    // strategy stuck spamming trades), never a trading/risk rule — real
+    // risk is controlled by capital-at-risk limits (exposure, concentration,
+    // correlation, drawdown, daily loss), not by counting trades.
     name: "max-trades",
     kind: "MAX_TRADES",
     evaluate: (ctx) =>
       ctx.tradesToday >= MAX_TRADES_PER_DAY
-        ? { tripped: true, reason: `${ctx.tradesToday} operaciones hoy alcanzaron el límite diario de ${MAX_TRADES_PER_DAY}.` }
+        ? {
+            tripped: true,
+            reason: `${ctx.tradesToday} operaciones hoy alcanzaron el límite técnico de seguridad de ${MAX_TRADES_PER_DAY} — esto protege contra un fallo (p. ej. una estrategia en bucle), no es un límite de riesgo normal.`,
+          }
         : { tripped: false },
   },
   {
