@@ -1,23 +1,34 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { fromJson } from "@/lib/json";
+import { computeMarketDataCoverage } from "@/lib/marketData/coverage";
+import type { TimeframeCode } from "@/lib/providers/types";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const run = await prisma.replayRun.findUnique({ where: { id }, include: { results: true } });
   if (!run) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
+  const assetSymbols = fromJson<string[]>(run.assetSymbols, []);
+
+  // Fase 9 — only meaningful for a real replay: how much of BTC/ETH/SOL's
+  // (etc.) actually-imported Binance history this run's assets have,
+  // computed fresh from MarketData every time (never cached/stale).
+  const marketDataCoverage =
+    run.dataSource === "HISTORICAL_REAL" ? await Promise.all(assetSymbols.map((symbol) => computeMarketDataCoverage(symbol, run.timeframe as TimeframeCode, "binance"))) : null;
+
   return NextResponse.json({
     ok: true,
     run: {
       id: run.id,
       strategyId: run.strategyId,
-      assetSymbols: fromJson<string[]>(run.assetSymbols, []),
+      assetSymbols,
       timeframe: run.timeframe,
       startDate: run.startDate,
       endDate: run.endDate,
       aiMode: run.aiMode,
       dataSource: run.dataSource,
+      marketDataCoverage,
       initialCapital: run.initialCapital,
       riskLevel: run.riskLevel,
       hasSegments: run.hasSegments,

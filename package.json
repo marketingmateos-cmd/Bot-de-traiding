@@ -22,6 +22,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
+    "market-data:import": "tsx scripts/import-historical-market-data.mjs",
+    "market-data:coverage": "tsx scripts/check-market-data-coverage.mjs",
     "desktop:prepare": "node scripts/prepare-desktop.mjs",
     "desktop:dev": "electron .",
     "desktop:build:win": "npm run desktop:prepare && electron-builder --win --x64 --publish=never",

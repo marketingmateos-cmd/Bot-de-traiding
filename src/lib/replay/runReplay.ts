@@ -24,7 +24,7 @@ export async function fetchAndValidateReplayData(config: ReplayConfig, assetIdBy
   const perAssetReports: ReplayDataQualityReport[] = [];
 
   for (const symbol of config.assetSymbols) {
-    const result = getHistoricalBars(symbol, config.timeframe, config.startDate, config.endDate, config.dataSource);
+    const result = await getHistoricalBars(symbol, config.timeframe, config.startDate, config.endDate, config.dataSource);
     if (!result.available) {
       throw new ReplayDataUnavailableError(
         `no hay un proveedor de datos de mercado histórico REAL configurado para ${symbol} (solo existe el proveedor DEMO — ver providers/registry.ts). Usa dataSource: "SYNTHETIC" para probar la infraestructura.`

@@ -42,6 +42,7 @@ model Asset {
   createdAt    DateTime @default(now())
 
   marketData      MarketData[]
+  marketDataImportLogs MarketDataImportLog[]
   news            NewsAssetLink[]
   sentiment       SentimentSnapshot[]
   onChainMetrics  OnChainMetric[]
@@ -80,6 +81,32 @@ model MarketData {
 
   @@unique([assetId, timeframe, timestamp, source])
   @@index([assetId, timeframe, timestamp])
+}
+
+// Fase 9 — one row per run of scripts/import-historical-market-data.mjs.
+// Lets a re-run answer "what range do I already have for BTC/H1/binance"
+// without re-hitting the external API, and gives an honest, persistent
+// record of every import attempt (including partial/failed ones) — never
+// just a silent console log that disappears.
+model MarketDataImportLog {
+  id           String   @id @default(cuid())
+  assetId      String
+  asset        Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  timeframe    String
+  source       String // e.g. "binance"
+  rangeStart   DateTime
+  rangeEnd     DateTime
+  rowsRequested Int     @default(0)
+  rowsReceived  Int     @default(0)
+  rowsInserted Int      @default(0)
+  rowsUpdated  Int      @default(0)
+  rowsSkipped  Int      @default(0)
+  rowsInvalid  Int      @default(0)
+  status       String // PENDING | DONE | PARTIAL | FAILED
+  error        String?
+  importedAt   DateTime @default(now())
+
+  @@index([assetId, timeframe, source, importedAt])
 }
 
 model DataQualityReport {

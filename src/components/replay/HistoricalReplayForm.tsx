@@ -17,11 +17,14 @@ import type { OverfittingReport } from "@/lib/engines/overfitting";
 import type { WalkForwardResult } from "@/lib/engines/walkForward";
 import type { RobustnessClassification } from "@/lib/replay/replayRobustness";
 import type { TimeframeCode } from "@/lib/providers/types";
+import type { MarketDataCoverageReport } from "@/lib/marketData/coverage";
 
 interface RunDetail {
   id: string;
   status: "PENDING" | "RUNNING" | "DONE" | "FAILED";
   error: string | null;
+  dataSource: ReplayDataSource;
+  marketDataCoverage: MarketDataCoverageReport[] | null;
   dataQualityReport: ReplayDataQualityReport | null;
   walkForward: WalkForwardResult | null;
   robustness: { score: number; classification: RobustnessClassification; factors: { name: string; score: number; detail: string }[] } | null;
@@ -185,7 +188,7 @@ export function HistoricalReplayForm({ assetSymbols, strategies }: { assetSymbol
             <div className="text-xs text-slate-300">Fuente de datos</div>
             <select value={dataSource} onChange={(e) => setDataSource(e.target.value as ReplayDataSource)} className="mt-1 w-full rounded border border-bg-border bg-black/20 px-2 py-1 text-sm text-slate-100">
               <option value="SYNTHETIC">SYNTHETIC (demo, para probar la infraestructura)</option>
-              <option value="HISTORICAL_REAL">HISTORICAL_REAL (no disponible en este entorno)</option>
+              <option value="HISTORICAL_REAL">HISTORICAL_REAL (Binance — requiere datos ya importados)</option>
             </select>
           </div>
 
@@ -237,6 +240,7 @@ function ReplayResults({ run }: { run: RunDetail }) {
 
   return (
     <div className="flex flex-col gap-5">
+      <MarketDataSourceCard run={run} />
       {run.dataQualityReport && <DataQualityCard report={run.dataQualityReport} />}
 
       {run.results.map((segment) => (
@@ -248,6 +252,57 @@ function ReplayResults({ run }: { run: RunDetail }) {
       {run.overfitting && <OverfittingCard overfitting={run.overfitting} />}
       {run.evidence && <EvidenceCard evidence={run.evidence} />}
     </div>
+  );
+}
+
+/**
+ * Fase 9.8 — the ONE place this screen tells the user, unambiguously,
+ * whether the numbers below came from real Binance history or from the
+ * SYNTHETIC generator. Deliberately minimal: a badge plus, only for
+ * HISTORICAL_REAL, the per-asset MarketData coverage already computed
+ * server-side (Fase 9.6) — no separate Data Management screen.
+ */
+function MarketDataSourceCard({ run }: { run: RunDetail }) {
+  const isReal = run.dataSource === "HISTORICAL_REAL";
+  return (
+    <Card title="Fuente de datos" className={isReal ? "border-accent/40 bg-accent/5" : "border-bg-border"}>
+      <div className="flex items-center gap-2">
+        <Badge tone={isReal ? "success" : "muted"}>{isReal ? "HISTORICAL REAL (Binance)" : "SYNTHETIC (DEMO)"}</Badge>
+        {!isReal && <span className="text-xs text-slate-400">Random walk determinista — nunca evidencia de rentabilidad real.</span>}
+      </div>
+
+      {isReal && run.marketDataCoverage && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[520px] text-left text-xs">
+            <thead className="text-slate-400">
+              <tr>
+                <th className="pb-1 pr-3">Activo</th>
+                <th className="pb-1 pr-3">Cobertura</th>
+                <th className="pb-1 pr-3">Velas</th>
+                <th className="pb-1 pr-3">Primera</th>
+                <th className="pb-1 pr-3">Última</th>
+                <th className="pb-1 pr-3">Huecos</th>
+                <th className="pb-1">Calidad</th>
+              </tr>
+            </thead>
+            <tbody className="text-slate-200">
+              {run.marketDataCoverage.map((c) => (
+                <tr key={c.symbol} className="border-t border-bg-border/60">
+                  <td className="py-1 pr-3 font-semibold">{c.symbol}</td>
+                  <td className="py-1 pr-3">{c.coveragePct !== null ? `${c.coveragePct.toFixed(1)}%` : "—"}</td>
+                  <td className="py-1 pr-3">{c.rowCount}</td>
+                  <td className="py-1 pr-3">{c.firstTimestamp ? new Date(c.firstTimestamp).toLocaleDateString() : "—"}</td>
+                  <td className="py-1 pr-3">{c.lastTimestamp ? new Date(c.lastTimestamp).toLocaleDateString() : "—"}</td>
+                  <td className="py-1 pr-3">{c.gaps.length}</td>
+                  <td className="py-1">{c.avgQuality !== null ? c.avgQuality.toFixed(0) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-2 text-xs text-slate-400">Huecos reales del historial importado — nunca se rellenan sintéticamente.</p>
+        </div>
+      )}
+    </Card>
   );
 }
 
