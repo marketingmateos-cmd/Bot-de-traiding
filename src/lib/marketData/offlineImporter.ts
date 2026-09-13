@@ -123,37 +123,81 @@ interface CsvParseResult {
   errors: RowError[];
 }
 
+/** Format B: Binance's own raw klines column layout — see the module doc comment. */
+const RAW_KLINE_COLUMN_COUNT = 12;
+
+type CsvFormat = "HEADER_6COL" | "RAW_KLINE_12COL";
+
 /**
- * Minimal CSV parser for exactly the documented format:
- * `timestamp,open,high,low,close,volume` (header required, columns in
- * this exact order, one candle per line). No quoting/escaping support —
- * a market-data OHLCV export never needs it, and refusing anything else
- * keeps "can the format be determined unambiguously" a hard yes/no rather
- * than a guess.
+ * Looks ONLY at the first line to decide which of the two supported
+ * formats the whole file is in — never per-row, so a file can't silently
+ * drift between formats line to line. Format A is recognized by its exact
+ * literal header; Format B (headerless) is recognized by column count
+ * alone, since a raw klines export has no header to check.
+ */
+function detectCsvFormat(firstLine: string): { format: CsvFormat } | { error: string } {
+  const cols = firstLine.split(",");
+  const asHeader = cols.map((h) => h.trim().toLowerCase());
+  const expectedHeader = CSV_HEADER as readonly string[];
+  if (asHeader.length === expectedHeader.length && expectedHeader.every((h, i) => asHeader[i] === h)) {
+    return { format: "HEADER_6COL" };
+  }
+  if (cols.length === RAW_KLINE_COLUMN_COUNT) {
+    return { format: "RAW_KLINE_12COL" };
+  }
+  return {
+    error:
+      `Formato de CSV no reconocido. Se aceptan dos formatos: ` +
+      `(A) cabecera "${expectedHeader.join(",")}", o ` +
+      `(B) klines crudas de Binance sin cabecera con exactamente ${RAW_KLINE_COLUMN_COUNT} columnas (openTime,open,high,low,close,volume,closeTime,quoteVolume,numTrades,takerBuyBase,takerBuyQuote,ignore). ` +
+      `Primera línea recibida (${cols.length} columnas): "${firstLine}"`,
+  };
+}
+
+/**
+ * Minimal CSV parser supporting exactly two documented formats — no
+ * quoting/escaping support in either, since a market-data OHLCV export
+ * never needs it, and refusing anything else keeps "can the format be
+ * determined unambiguously" a hard yes/no rather than a guess:
+ *
+ *  - Format A: `timestamp,open,high,low,close,volume`, header required,
+ *    columns in this exact order, one candle per line.
+ *  - Format B: Binance's own raw klines row shape, NO header line, exactly
+ *    12 columns per line (`openTime,open,high,low,close,volume,closeTime,
+ *    quoteVolume,numTrades,takerBuyBase,takerBuyQuote,ignore`). Only
+ *    column 0 (timestamp) and columns 1-5 (OHLCV) are ever read; columns
+ *    6-11 are Binance metadata this importer has no use for and never
+ *    even looks at, let alone writes anywhere.
  */
 function parseCsv(content: string): CsvParseResult {
   const lines = content.split(/\r\n|\r|\n/).filter((line) => line.trim() !== "");
   if (lines.length === 0) {
-    throw new Error("CSV vacío: no se encontró ni siquiera la línea de cabecera.");
+    throw new Error("CSV vacío: no se encontró ni siquiera una línea de datos.");
   }
 
-  const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
-  const expected = CSV_HEADER as readonly string[];
-  if (header.length !== expected.length || !expected.every((h, i) => header[i] === h)) {
-    throw new Error(`Cabecera de CSV no reconocida. Se esperaba exactamente: "${expected.join(",")}". Se recibió: "${lines[0]}"`);
+  const detected = detectCsvFormat(lines[0]);
+  if ("error" in detected) {
+    throw new Error(detected.error);
   }
+  const { format } = detected;
 
-  const dataLines = lines.slice(1);
+  const dataLines = format === "HEADER_6COL" ? lines.slice(1) : lines;
+  const expectedCols = format === "HEADER_6COL" ? CSV_HEADER.length : RAW_KLINE_COLUMN_COUNT;
+  const lineNumberOffset = format === "HEADER_6COL" ? 2 : 1; // +1 for the header row when there is one
+
   const parsed: ParsedRow[] = [];
   const errors: RowError[] = [];
 
   for (let i = 0; i < dataLines.length; i++) {
-    const lineNumber = i + 2; // 1-indexed, +1 for the header row
+    const lineNumber = i + lineNumberOffset;
     const cols = dataLines[i].split(",");
-    if (cols.length !== 6) {
-      errors.push({ line: lineNumber, reason: `se esperaban 6 columnas, se encontraron ${cols.length}` });
+    if (cols.length !== expectedCols) {
+      errors.push({ line: lineNumber, reason: `se esperaban ${expectedCols} columnas (formato ${format === "HEADER_6COL" ? "A" : "B"}), se encontraron ${cols.length}` });
       continue;
     }
+    // Columns 0-5 are timestamp+OHLCV in BOTH formats; Format B's columns
+    // 6-11 (closeTime, quoteVolume, numTrades, takerBuy*, ignore) are
+    // simply never read — `cols` is not even sliced for them.
     const [tsRaw, openRaw, highRaw, lowRaw, closeRaw, volumeRaw] = cols;
 
     const ts = parseTimestampStrict(tsRaw);

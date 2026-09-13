@@ -191,6 +191,143 @@ describe("Fase 9.1 test #4 — timestamp inválido/ambiguo nunca se adivina", ()
   });
 });
 
+// Format B: Binance's own raw klines row shape (12 columns, no header).
+// closeTime/quoteVolume/numTrades/takerBuy*/ignore (columns 6-11) are
+// filled with plausible-looking but arbitrary values on purpose, to prove
+// the importer truly never reads them — not just that it happens to work
+// when they're zero.
+function rawKlineLine(openMs: number | bigint, open: number, high: number, low: number, close: number, volume: number): string {
+  const closeMs = typeof openMs === "bigint" ? openMs + BigInt(3_599_999) : openMs + 3_599_999;
+  return [openMs, open, high, low, close, volume, closeMs, "12345.6789", "42", "1.2345", "6789.01", "0"].join(",");
+}
+
+describe("Fase 9.1.8 — Formato B: klines crudas de Binance (12 columnas, sin cabecera)", () => {
+  const startMs = Date.UTC(2009, 0, 1);
+  const source = "binance_csv";
+
+  afterAll(() => cleanupRange("BTC", "H1", source, startMs, startMs + 3 * 3_600_000));
+
+  it("test #1 — acepta un archivo de klines crudas de Binance de 12 columnas sin cabecera", async () => {
+    const file = writeRawCsv("raw-basic", [rawKlineLine(startMs, 100, 101, 99, 100.5, 10), rawKlineLine(startMs + 3_600_000, 100.5, 102, 100, 101, 12)].join("\n"));
+    const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(stats.status).toBe("DONE");
+    expect(stats.rowsRead).toBe(2);
+    expect(stats.inserted).toBe(2);
+  });
+
+  it("test #2 — extrae correctamente openTime (columna 0) y OHLCV (columnas 1-5)", async () => {
+    const asset = await prisma.asset.findUniqueOrThrow({ where: { symbol: "BTC" } });
+    const row = await prisma.marketData.findFirstOrThrow({ where: { assetId: asset.id, timeframe: "H1", source, timestamp: new Date(startMs) } });
+    expect(row.open).toBe(100);
+    expect(row.high).toBe(101);
+    expect(row.low).toBe(99);
+    expect(row.close).toBe(100.5);
+    expect(row.volume).toBe(10);
+  });
+
+  it("test #3 — ignora completamente closeTime y la metadata de Binance (columnas 6-11), sea cual sea su valor", async () => {
+    const t = startMs + 2 * 3_600_000;
+    // closeTime deliberately wrong/nonsensical, and garbage-ish metadata —
+    // must have zero effect on the parsed OHLCV bar.
+    const line = [t, 200, 201, 199, 200.5, 20, 999999999999, "not-a-number", "-1", "garbage", "", "1"].join(",");
+    const file = writeRawCsv("raw-ignore-metadata", line);
+    const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(stats.invalid).toBe(0);
+    expect(stats.inserted).toBe(1);
+
+    const asset = await prisma.asset.findUniqueOrThrow({ where: { symbol: "BTC" } });
+    const row = await prisma.marketData.findFirstOrThrow({ where: { assetId: asset.id, timeframe: "H1", source, timestamp: new Date(t) } });
+    expect(row.open).toBe(200);
+    expect(row.close).toBe(200.5);
+  });
+
+  it("test #4 — acepta epoch microseconds de 16 dígitos como columna 0 en Formato B", async () => {
+    const microsMs = Date.UTC(2009, 1, 1, 5);
+    const micros = BigInt(microsMs) * BigInt(1000);
+    const file = writeRawCsv("raw-micros", rawKlineLine(micros, 300, 301, 299, 300.5, 30));
+    const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(stats.invalid).toBe(0);
+    expect(stats.firstTimestamp?.getTime()).toBe(microsMs);
+    await cleanupRange("BTC", "H1", source, microsMs, microsMs);
+  });
+
+  it("test #5 — rechaza una fila con menos de 12 columnas (formato ya establecido por una primera fila válida)", async () => {
+    const t = Date.UTC(2009, 1, 2);
+    const goodLine = rawKlineLine(t, 100, 101, 99, 100.5, 10); // establishes Format B (12 cols) for the whole file
+    const shortLine = `${t + 3_600_000},100,101,99,100.5,10,${t + 7_199_999},1,2,3`; // only 10 columns
+    const file = writeRawCsv("raw-too-few-cols", [goodLine, shortLine].join("\n"));
+    const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(stats.invalid).toBe(1);
+    expect(stats.inserted).toBe(1); // the good line is still imported; only the malformed row is rejected
+    await cleanupRange("BTC", "H1", source, t, t);
+  });
+
+  it("test #6 — rechaza una fila con más de 12 columnas (formato ya establecido por una primera fila válida)", async () => {
+    const t = Date.UTC(2009, 1, 3);
+    const goodLine = rawKlineLine(t, 100, 101, 99, 100.5, 10);
+    const longLine = `${t + 3_600_000},100,101,99,100.5,10,${t + 7_199_999},1,2,3,4,5,6`; // 13 columns
+    const file = writeRawCsv("raw-too-many-cols", [goodLine, longLine].join("\n"));
+    const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(stats.invalid).toBe(1);
+    expect(stats.inserted).toBe(1);
+    await cleanupRange("BTC", "H1", source, t, t);
+  });
+
+  it("test #7 — rechaza un timestamp inválido/ambiguo en la columna 0 de Formato B", async () => {
+    const file = writeRawCsv("raw-bad-ts", rawKlineLine(12345678901234, 100, 101, 99, 100.5, 10)); // 14 digits — ambiguous, never guessed
+    const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(stats.invalid).toBe(1);
+    expect(stats.inserted).toBe(0);
+  });
+
+  it("test #8 — mantiene la validación OHLCV existente (high < low se rechaza igual que en Formato A)", async () => {
+    const t = Date.UTC(2009, 1, 4);
+    const file = writeRawCsv("raw-bad-ohlc", rawKlineLine(t, 100, 50, 60, 55, 10)); // high < low
+    const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(stats.invalid).toBe(1);
+    expect(stats.inserted).toBe(0);
+  });
+
+  it("test #9 — detecta duplicados dentro de un mismo archivo Formato B", async () => {
+    const t = Date.UTC(2009, 1, 5);
+    const line = rawKlineLine(t, 400, 401, 399, 400.5, 40);
+    const file = writeRawCsv("raw-dup", [line, line].join("\n")); // exact duplicate row
+    const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(stats.inserted).toBe(1); // only one of the two identical rows is written
+    await cleanupRange("BTC", "H1", source, t, t);
+  });
+
+  it("tests #10/#11/#12 — idempotencia, isDemo=false y source=binance_csv", async () => {
+    const t = Date.UTC(2009, 1, 6);
+    const file1 = writeRawCsv("raw-idem-1", rawKlineLine(t, 500, 501, 499, 500.5, 50));
+    const first = await importHistoricalMarketDataFromFile({ filePath: file1, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(first.inserted).toBe(1);
+    expect(first.duplicates).toBe(0);
+
+    const file2 = writeRawCsv("raw-idem-2", rawKlineLine(t, 500, 501, 499, 500.5, 50));
+    const second = await importHistoricalMarketDataFromFile({ filePath: file2, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(second.inserted).toBe(0);
+    expect(second.duplicates).toBe(1);
+
+    const asset = await prisma.asset.findUniqueOrThrow({ where: { symbol: "BTC" } });
+    const row = await prisma.marketData.findFirstOrThrow({ where: { assetId: asset.id, timeframe: "H1", source, timestamp: new Date(t) } });
+    expect(row.isDemo).toBe(false);
+    expect(row.source).toBe("binance_csv");
+    const rowCount = await prisma.marketData.count({ where: { assetId: asset.id, timeframe: "H1", source, timestamp: new Date(t) } });
+    expect(rowCount).toBe(1); // no duplicate row created by the second run
+    await cleanupRange("BTC", "H1", source, t, t);
+  });
+
+  it("test #13 — el Formato A (6 columnas con cabecera) sigue funcionando sin cambios, sin confundirse con Formato B", async () => {
+    const t = Date.UTC(2009, 1, 7);
+    const file = writeCsv("format-a-still-works", [[new Date(t).toISOString(), "600", "601", "599", "600.5", "60"]]);
+    const stats = await importHistoricalMarketDataFromFile({ filePath: file, exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(stats.status).toBe("DONE");
+    expect(stats.inserted).toBe(1);
+    await cleanupRange("BTC", "H1", source, t, t);
+  });
+});
+
 describe("Fase 9.1 tests #5/#6/#7 — orden, duplicados y huecos", () => {
   const startMs = Date.UTC(2014, 0, 1);
   // Rows deliberately written OUT OF ORDER and with a duplicate timestamp,
