@@ -46,6 +46,7 @@ export const SUB_NAV: Record<string, NavItem[]> = {
   "/settings": [
     { href: "/settings", label: "Ajustes" },
     { href: "/risk", label: "Riesgo" },
+    { href: "/accounts", label: "Accounts" },
     { href: "/system-health", label: "Salud del Sistema" },
     { href: "/luck-vs-edge", label: "Suerte vs Ventaja" },
   ],
