@@ -7,6 +7,7 @@ import { StatTile } from "@/components/ui/StatTile";
 import { EquityCurveChart } from "@/components/charts/EquityCurveChart";
 import { DrawdownCurveChart } from "@/components/charts/DrawdownCurveChart";
 import { RegimeAnalysisSection } from "@/components/strategyLab/RegimeAnalysisPanel";
+import { HypothesisValidationSection } from "@/components/strategyLab/HypothesisValidationPanel";
 import { tDirection, tExitReason } from "@/lib/i18n";
 import type { TimeframeCode } from "@/lib/providers/types";
 import type { StrategyBenchmarkMetrics } from "@/lib/research/benchmarkMetrics";
@@ -352,6 +353,8 @@ export function StrategyLabForm({ assetSymbols, strategies }: { assetSymbols: st
           {selectedResult && <StrategyDetail result={selectedResult} />}
 
           <RegimeAnalysisSection benchmarkRunId={run.id} selectedStrategyId={selectedStrategyId} />
+
+          <HypothesisValidationSection benchmarkRunId={run.id} />
         </>
       )}
     </div>

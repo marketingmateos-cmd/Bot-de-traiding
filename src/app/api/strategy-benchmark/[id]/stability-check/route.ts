@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { computeRegimeAnalysis } from "@/lib/research/regimeAnalysis";
+import { computeIsValidationOosRanges } from "@/lib/research/hypothesisValidation";
 import { runIsValidationOosReplay, type IsValidationOosRanges } from "@/lib/replay/segments";
 import type { ReplayConfig } from "@/lib/replay/types";
 
@@ -8,9 +9,6 @@ interface StabilityCheckBody {
   /** Opt-in (spec section 11): which strategies from this run to check. Omit/empty = every strategy in the run. */
   strategyIds?: string[];
 }
-
-const DAY_MS = 24 * 60 * 60_000;
-const MIN_TOTAL_DAYS_FOR_SEGMENTS = 30; // mirrors HistoricalReplayForm.tsx's own guard for offering IS/VALIDATION/OOS at all
 
 /**
  * Fase 12 — spec section 11 (stability, NOT optimization): reuses the
@@ -36,18 +34,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ ok: false, error: "No matching strategyIds in this benchmark run." }, { status: 400 });
   }
 
-  const totalDays = (run.endDate.getTime() - run.startDate.getTime()) / DAY_MS;
-  if (totalDays < MIN_TOTAL_DAYS_FOR_SEGMENTS) {
+  const computedRanges = computeIsValidationOosRanges(run.startDate, run.endDate);
+  if (!computedRanges) {
+    const totalDays = (run.endDate.getTime() - run.startDate.getTime()) / (24 * 60 * 60_000);
     return NextResponse.json({ ok: false, error: `El rango (${totalDays.toFixed(1)} días) es demasiado corto para segmentar en IS/VALIDATION/OOS.` }, { status: 400 });
   }
-
-  const isEnd = new Date(run.startDate.getTime() + totalDays * 0.6 * DAY_MS);
-  const validationEnd = new Date(run.startDate.getTime() + totalDays * 0.8 * DAY_MS);
-  const ranges: IsValidationOosRanges = {
-    is: { start: run.startDate, end: isEnd },
-    validation: { start: new Date(isEnd.getTime() + 3600_000), end: validationEnd },
-    oos: { start: new Date(validationEnd.getTime() + 3600_000), end: run.endDate },
-  };
+  const ranges: IsValidationOosRanges = computedRanges;
 
   const asset = await prisma.asset.findUnique({ where: { symbol: run.datasetSymbol } });
   if (!asset) return NextResponse.json({ ok: false, error: `No existe ningún Asset con symbol "${run.datasetSymbol}".` }, { status: 400 });

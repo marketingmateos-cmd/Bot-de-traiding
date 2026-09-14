@@ -445,6 +445,41 @@ The `/strategy-lab` UI shows both per strategy, below the existing Fase 11 detai
   combinations are worth investigating further, and which (e.g. any BULL cell, most BEAR cells)
   don't yet have enough trades to say anything.
 
+### Hypothesis Validation & Walk-Forward (Fase 13) — `src/lib/research/hypothesisValidation.ts`
+
+Fase 12 produced hypotheses (H1-H5), not conclusions. Fase 13 asks the follow-up question directly:
+**do those patterns still hold outside the segment where they were first observed?** Still pure
+post-processing/re-simulation with the SAME baseline config — no parameter ever changes.
+`POST /api/strategy-benchmark/[id]/hypothesis-validation` (+ its `.../walk-forward` sub-route) power
+a new "Hypothesis Validation" section in `/strategy-lab`.
+
+- **One real IS/VALIDATION/OOS split, not fabricated multiple windows**: the same 60/20/20
+  chronological split Fase 12's stability-check already used. A supplementary walk-forward check
+  (reusing the unmodified Fase 7E engine) DOES produce 3 sliding windows over the 184-day range,
+  but deliberately stays at the aggregate return/PF level — decomposing each window's already-small
+  OOS portion (~27 days) by regime would push most cells below `MIN_SAMPLE_SIZE`, so it isn't done
+  (documented explicitly in `WALK_FORWARD_LIMITATION_NOTE` rather than fabricating false precision).
+- **OOS shown first, everywhere** (UI columns and internal segment ordering) — the explicit point is
+  to stop a reader from anchoring on the training segment.
+- **A hypothesis "direction" reduces to one comparison**: does the subgroup's (e.g. RANGE trades)
+  expectancy sit on the hypothesized side of its complement's? Evaluable only when the subgroup
+  itself clears `MIN_SAMPLE_SIZE` — never coerces a verdict from a handful of trades.
+- **Four-way descriptive verdict, never PASS/FAIL**: `SUPPORTED` (every evaluable segment agrees,
+  including OOS, across ≥2 segments), `WEAK` (mixed, or only one segment evaluable), `REJECTED`
+  (every evaluable segment disagrees), `INCONCLUSIVE` (nothing evaluable anywhere) — formula and
+  reasoning documented in `STABILITY_SCORE_FORMULA`.
+- **Real result** (same BTC H1 2026-03-01→2026-08-31 run): of the 10 H1/H2/H3/H4 checks (4
+  strategies × RANGE + HIGH_VOLATILITY, plus Trend Following/Momentum × BEAR), **none reached
+  `SUPPORTED`** — RANGE was `REJECTED` for Momentum and Trend Following (the direction reversed
+  out-of-sample) and only `WEAK` for Breakout/Mean Reversion; every HIGH_VOLATILITY and BEAR check
+  landed `WEAK` or `INCONCLUSIVE` because OOS/VALIDATION samples were too thin to evaluate. H5 (the
+  2026-06-03/07 loss cluster) classified `MIXED`: widening the lens from "each strategy's single
+  worst trade" to "every trade overlapping that week" shows Momentum and Trend Following actually
+  finished the window positive — the original "common market event" reading doesn't survive contact
+  with the full data. The supplementary walk-forward's 3 windows were unanimously negative-OOS-return
+  for every strategy (0% window win rate across the board) — consistent with Fase 11/12's "no
+  demonstrated edge" finding, this time checked outside a single split.
+
 ### AI layer (spec #16, #17, #36)
 
 `AIAnalystOutput`/`AICriticOutput` are typed JSON, never free text — both the rule-based demo
