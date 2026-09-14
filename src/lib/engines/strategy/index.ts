@@ -7,6 +7,7 @@ import { multiTimeframeStrategy } from "./multiTimeframe";
 import { eventDrivenStrategy } from "./eventDriven";
 import { BASELINE_STRATEGY_REGISTRY } from "./baseline";
 import { RESEARCH_STRATEGY_REGISTRY } from "./research";
+import { RESEARCH20_STRATEGY_REGISTRY } from "./research20";
 import type { StrategyDefinition } from "./types";
 
 export const STRATEGY_REGISTRY: StrategyDefinition[] = [
@@ -29,9 +30,15 @@ export const STRATEGY_REGISTRY: StrategyDefinition[] = [
  * Strategy Lab benchmark asks for one explicitly.
  */
 export function getStrategyById(id: string): StrategyDefinition | undefined {
-  return STRATEGY_REGISTRY.find((s) => s.id === id) ?? BASELINE_STRATEGY_REGISTRY.find((s) => s.id === id) ?? RESEARCH_STRATEGY_REGISTRY.find((s) => s.id === id);
+  return (
+    STRATEGY_REGISTRY.find((s) => s.id === id) ??
+    BASELINE_STRATEGY_REGISTRY.find((s) => s.id === id) ??
+    RESEARCH_STRATEGY_REGISTRY.find((s) => s.id === id) ??
+    RESEARCH20_STRATEGY_REGISTRY.find((s) => s.id === id)
+  );
 }
 
 export { BASELINE_STRATEGY_REGISTRY } from "./baseline";
 export { RESEARCH_STRATEGY_REGISTRY, HYPOTHESIS_REGISTRY, getHypothesis, type StrategyHypothesis } from "./research";
+export { RESEARCH20_STRATEGY_REGISTRY } from "./research20";
 export * from "./types";

@@ -18,7 +18,14 @@ export type StrategyKind =
   | "VOLUME_CONFIRMATION"
   | "TREND_PULLBACK"
   | "BREAKOUT_CONFIRMATION"
-  | "MOMENTUM_REVERSAL";
+  | "MOMENTUM_REVERSAL"
+  // Fase 20 — Nuevas Fuentes de Edge: only the 3 families formalized as
+  // tradeable strategies (F20-B/C/E, spec Condición 5). F20-A stays a pure
+  // statistical study and F20-D stays descriptive-only this phase (spec
+  // Condiciones 4/6) — neither gets a StrategyKind.
+  | "VOLATILITY_TRANSITION_SHOCK"
+  | "VOLUME_PRICE_DIVERGENCE"
+  | "COMPRESSION_DURATION";
 
 export interface StrategyParams {
   [key: string]: number | string | boolean;

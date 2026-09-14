@@ -20,8 +20,8 @@ export interface DescriptiveResearchStats {
   totalSlippage: number;
 }
 
-/** Realized R-multiple: net P&L direction-adjusted distance / the trade's OWN risk distance (|entry-stopLoss|), or null when the trade has no recorded stop (never assumed). */
-function computeRMultiple(trade: ReplayTradeRecord): number | null {
+/** Realized R-multiple: net P&L direction-adjusted distance / the trade's OWN risk distance (|entry-stopLoss|), or null when the trade has no recorded stop (never assumed). Exported (Fase 20) so other descriptive modules — e.g. `phase20SessionAnalysis.ts`'s per-session bucketing — reuse the exact same R-multiple convention instead of re-deriving it. */
+export function computeRMultiple(trade: ReplayTradeRecord): number | null {
   if (trade.stopLoss === null || trade.stopLoss === undefined) return null;
   const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
   if (riskDistance <= 0) return null;
