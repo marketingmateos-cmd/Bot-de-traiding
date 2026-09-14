@@ -2,7 +2,7 @@ import type { OHLCVBar } from "@/lib/providers/types";
 import type { WalkForwardResult, WalkForwardWindowResult } from "@/lib/engines/walkForward";
 import { fetchAndValidateReplayData } from "./runReplay";
 import { runReplayOnBars } from "./historicalReplayEngine";
-import type { ReplayConfig, ReplayDataQualityReport } from "./types";
+import type { ReplayConfig, ReplayDataQualityReport, ReplayTradeRecord, ReplayDecisionRecord } from "./types";
 
 export interface ReplayWalkForwardOptions {
   windowSizeDays: number;
@@ -10,9 +10,17 @@ export interface ReplayWalkForwardOptions {
   stepDays: number; // how far each window slides forward
 }
 
+/** Fase 18 — additive only: the per-window OOS/test trades+decisions that `testResult` already computed internally, now also surfaced so a caller can derive per-window descriptive stats (e.g. Avg R) that `WalkForwardWindowResult`'s own aggregate `BacktestMetrics` don't carry. Every existing field/consumer of `ReplayWalkForwardOutput` is unaffected — both current callers destructure only `{ walkForward }`. */
+export interface ReplayWalkForwardWindowTrades {
+  windowIndex: number;
+  oosTrades: ReplayTradeRecord[];
+  oosDecisions: ReplayDecisionRecord[];
+}
+
 export interface ReplayWalkForwardOutput {
   walkForward: WalkForwardResult;
   dataQuality: ReplayDataQualityReport;
+  windowTrades: ReplayWalkForwardWindowTrades[];
 }
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -42,6 +50,7 @@ export async function runReplayWalkForward(config: ReplayConfig, fullRange: { st
   const windowMs = options.windowSizeDays * DAY_MS;
   const stepMs = options.stepDays * DAY_MS;
   const windows: WalkForwardWindowResult[] = [];
+  const windowTrades: ReplayWalkForwardWindowTrades[] = [];
 
   let windowIndex = 0;
   for (let windowStart = fullRange.start.getTime(); windowStart + windowMs <= fullRange.end.getTime(); windowStart += stepMs) {
@@ -54,6 +63,15 @@ export async function runReplayWalkForward(config: ReplayConfig, fullRange: { st
       barsUpToWindowEnd.set(symbol, bars.filter((b) => b.timestamp.getTime() <= windowEnd));
     }
 
+    // Fase 18 audit finding (spec section 19/33, documented not fixed — see
+    // that phase's final report): `tradingEndMs`/`tradingStartMs` are both
+    // inclusive in `runReplayOnBars` (`tickMs >= start && tickMs <= end`),
+    // so the single candle at exactly `trainEnd` sits inside BOTH windows
+    // below — unlike `segments.ts`'s IS/VALIDATION/OOS split, which adds an
+    // explicit +1 candle-step gap between segments to avoid exactly this.
+    // Classified non-material for Fase 18 (at most one shared candle per
+    // window, and only when a strategy's signal happens to fire on it) and
+    // left unmodified here per this phase's "no silent fix" rule.
     const [trainResult, testResult] = await Promise.all([
       runReplayOnBars(config, barsUpToWindowEnd, assetsMeta, `wf-${windowIndex}-train`, { tradingStartMs: windowStart, tradingEndMs: trainEnd }),
       runReplayOnBars(config, barsUpToWindowEnd, assetsMeta, `wf-${windowIndex}-test`, { tradingStartMs: trainEnd, tradingEndMs: windowEnd }),
@@ -69,6 +87,7 @@ export async function runReplayWalkForward(config: ReplayConfig, fullRange: { st
       oosMetrics: testResult.metrics,
       degraded,
     });
+    windowTrades.push({ windowIndex, oosTrades: testResult.trades, oosDecisions: testResult.decisions });
     windowIndex++;
   }
 
@@ -81,5 +100,6 @@ export async function runReplayWalkForward(config: ReplayConfig, fullRange: { st
   return {
     walkForward: { windows, aggregateOosMetrics: { avgReturnPct, avgSharpe, winRateOfWindows } },
     dataQuality,
+    windowTrades,
   };
 }
