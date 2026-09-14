@@ -94,6 +94,17 @@ function sortValue(r: StrategyBenchmarkResultView, field: SortField): number {
   }
 }
 
+interface DatasetOption {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  startDate: string;
+  endDate: string;
+  rowCount: number;
+  source: string;
+  datasetHash: string;
+}
+
 export function StrategyLabForm({ assetSymbols, strategies }: { assetSymbols: string[]; strategies: StrategyMeta[] }) {
   const [datasetSymbol, setDatasetSymbol] = useState(assetSymbols.includes("BTC") ? "BTC" : assetSymbols[0] ?? "BTC");
   const [timeframe] = useState<TimeframeCode>("H1");
@@ -103,6 +114,9 @@ export function StrategyLabForm({ assetSymbols, strategies }: { assetSymbols: st
   const [customBalance, setCustomBalance] = useState("10000");
   const [riskLevel, setRiskLevel] = useState(5);
   const [selectedStrategyIds, setSelectedStrategyIds] = useState<string[]>(strategies.map((s) => s.id));
+
+  const [datasets, setDatasets] = useState<DatasetOption[]>([]);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
 
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +133,20 @@ export function StrategyLabForm({ assetSymbols, strategies }: { assetSymbols: st
 
   useEffect(() => {
     refreshPastRuns();
+    fetch("/api/datasets")
+      .then((r) => r.json())
+      .then((json) => json.ok && setDatasets(json.datasets.filter((d: DatasetOption) => d.timeframe === "H1")));
   }, []);
+
+  function selectDataset(id: string) {
+    setSelectedDatasetId(id);
+    const ds = datasets.find((d) => d.id === id);
+    if (ds) {
+      setDatasetSymbol(ds.symbol);
+      setStartDate(ds.startDate.slice(0, 10));
+      setEndDate(ds.endDate.slice(0, 10));
+    }
+  }
 
   function toggleStrategy(id: string) {
     setSelectedStrategyIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
@@ -154,6 +181,7 @@ export function StrategyLabForm({ assetSymbols, strategies }: { assetSymbols: st
         dataSource: "HISTORICAL_REAL",
       };
       if (evaluationProfileType === "CUSTOM") body.customEvaluation = { initialBalance: Number(customBalance) };
+      if (selectedDatasetId) body.datasetId = selectedDatasetId;
 
       const res = await fetch("/api/strategy-benchmark", { method: "POST", body: JSON.stringify(body) });
       const json = await res.json();
@@ -176,8 +204,31 @@ export function StrategyLabForm({ assetSymbols, strategies }: { assetSymbols: st
       <Card title="Configuración">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div>
-            <div className="text-xs text-slate-300">Dataset</div>
-            <select value={datasetSymbol} onChange={(e) => setDatasetSymbol(e.target.value)} className="mt-1 w-full rounded border border-bg-border bg-black/20 px-2 py-1 text-sm text-slate-100">
+            <div className="text-xs text-slate-300">Registered Dataset (Fase 14, opcional)</div>
+            <select
+              value={selectedDatasetId}
+              onChange={(e) => selectDataset(e.target.value)}
+              className="mt-1 w-full rounded border border-bg-border bg-black/20 px-2 py-1 text-sm text-slate-100"
+            >
+              <option value="">— manual (símbolo/fechas abajo) —</option>
+              {datasets.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.symbol} {d.timeframe} {d.startDate.slice(0, 10)}→{d.endDate.slice(0, 10)} ({d.rowCount} filas, {d.source})
+                </option>
+              ))}
+            </select>
+            {selectedDatasetId && <p className="mt-1 text-[10px] text-muted">Ver <a href="/datasets" className="underline">/datasets</a> para el manifest/hash completo.</p>}
+          </div>
+          <div>
+            <div className="text-xs text-slate-300">Symbol</div>
+            <select
+              value={datasetSymbol}
+              onChange={(e) => {
+                setDatasetSymbol(e.target.value);
+                setSelectedDatasetId("");
+              }}
+              className="mt-1 w-full rounded border border-bg-border bg-black/20 px-2 py-1 text-sm text-slate-100"
+            >
               {assetSymbols.map((s) => (
                 <option key={s} value={s}>
                   {s} {timeframe}
@@ -187,11 +238,27 @@ export function StrategyLabForm({ assetSymbols, strategies }: { assetSymbols: st
           </div>
           <div>
             <div className="text-xs text-slate-300">Fecha inicio</div>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="mt-1 w-full rounded border border-bg-border bg-black/20 px-2 py-1 text-sm text-slate-100" />
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setSelectedDatasetId("");
+              }}
+              className="mt-1 w-full rounded border border-bg-border bg-black/20 px-2 py-1 text-sm text-slate-100"
+            />
           </div>
           <div>
             <div className="text-xs text-slate-300">Fecha fin</div>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="mt-1 w-full rounded border border-bg-border bg-black/20 px-2 py-1 text-sm text-slate-100" />
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setSelectedDatasetId("");
+              }}
+              className="mt-1 w-full rounded border border-bg-border bg-black/20 px-2 py-1 text-sm text-slate-100"
+            />
           </div>
           <div>
             <div className="text-xs text-slate-300">Evaluation Profile</div>

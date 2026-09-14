@@ -26,6 +26,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       evaluationProfileType: run.evaluationProfileType,
       evaluationConfig: fromJson(run.evaluationConfig, null),
       riskLevel: run.riskLevel,
+      datasetId: run.datasetId,
+      datasetHash: run.datasetHash,
       status: run.status,
       error: run.error,
       createdAt: run.createdAt,

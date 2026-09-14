@@ -40,6 +40,8 @@ export interface StrategyBenchmarkRequest {
    * real multi-month import in the test database.
    */
   dataSource: ReplayDataSource;
+  /** Fase 14 — optional registered `ResearchDataset` this benchmark reproduces (spec section 18: reproducibility). Propagated unchanged into every strategy's own `ReplayConfig.datasetId`, and the dataset's own hash is copied onto this run's row directly (not just via a join through `results[].replayRunId`). */
+  datasetId?: string;
 }
 
 /**
@@ -52,6 +54,9 @@ export async function runStrategyBenchmark(request: StrategyBenchmarkRequest): P
   const template = resolveEvaluationTemplate(request.evaluationProfileType, request.customEvaluation);
   const resetHourUtc = 0; // matches EvaluationAccount's own DB default — see evaluationAccountStore.ts
 
+  // Fase 14 — same reproducibility annotation executeReplay() applies to a single ReplayRun, at the benchmark-run level.
+  const dataset = request.datasetId ? await prisma.researchDataset.findUnique({ where: { id: request.datasetId } }) : null;
+
   const run = await prisma.strategyBenchmarkRun.create({
     data: {
       datasetSymbol: request.datasetSymbol,
@@ -61,6 +66,8 @@ export async function runStrategyBenchmark(request: StrategyBenchmarkRequest): P
       evaluationProfileType: request.evaluationProfileType,
       evaluationConfig: toJson(template),
       riskLevel: request.riskLevel,
+      datasetId: dataset?.id ?? null,
+      datasetHash: dataset?.datasetHash ?? null,
       status: "RUNNING",
     },
   });
@@ -98,6 +105,7 @@ export async function runStrategyBenchmark(request: StrategyBenchmarkRequest): P
         dataSource: request.dataSource,
         initialCapital: template.initialBalance,
         riskLevel: request.riskLevel,
+        datasetId: request.datasetId,
       };
 
       const replayRunId = await executeReplay({ config });

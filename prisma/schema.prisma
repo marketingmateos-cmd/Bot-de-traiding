@@ -121,6 +121,41 @@ model DataQualityReport {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// RESEARCH DATASET VERSIONING (Fase 14) — a `ResearchDataset` row is a
+// named, reproducible SNAPSHOT of a (symbol, timeframe, source) slice of
+// already-imported `MarketData` — never a second copy of the candles
+// themselves. Registering one re-validates the underlying rows (spec
+// section 6: ascending timestamps, no duplicates, valid OHLC/volume,
+// aligned H1 intervals, no timestamp past the requested end) and computes
+// `datasetHash` over them, so a `Replay`/`StrategyBenchmarkRun` can point
+// at this row's id+hash instead of a bare date range and be reconstructed
+// exactly later even if more data is imported afterward.
+// ─────────────────────────────────────────────────────────────────────────
+
+model ResearchDataset {
+  id             String   @id @default(cuid())
+  symbol         String // internal Asset.symbol, e.g. "BTC" — same convention as StrategyBenchmarkRun.datasetSymbol
+  timeframe      String
+  startDate      DateTime
+  endDate        DateTime
+  rowCount       Int
+  source         String // the real MarketData.source these rows came from, e.g. "binance_csv"
+  isDemo         Boolean
+  coveragePct    Float
+  gapCount       Int
+  duplicateCount Int
+  quality        Int // 0-100, mean of the underlying MarketData.quality rows
+  datasetHash    String // sha256 over "timestamp|open|high|low|close|volume" per row, chronological order — see computeDatasetHash()'s own doc comment for the exact algorithm
+  createdAt      DateTime @default(now())
+
+  // Registering the identical (symbol, timeframe, start, end, source) range twice is
+  // idempotent — returns the existing row rather than creating a duplicate.
+  @@unique([symbol, timeframe, startDate, endDate, source])
+  @@index([symbol, timeframe])
+  @@index([datasetHash])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // NEWS
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -324,6 +359,10 @@ model ReplayRun {
   robustness        String? // JSON ReplayRobustnessReport
   overfitting       String? // JSON OverfittingReport
   evidence          String? // JSON EvidenceQualityReport
+  // Fase 14 — loose reference (like strategyId, never a Prisma relation) to the ResearchDataset this run's config.datasetId named, when one was given. Optional/nullable: undefined for every run predating Fase 14.
+  datasetId         String?
+  // Fase 14 — the referenced dataset's OWN datasetHash at the time this run started, copied here (not just joined via datasetId) so a row stays reproducible-by-hash even if the ResearchDataset row were ever deleted.
+  datasetHash       String?
   error             String?
   createdAt         DateTime  @default(now())
   completedAt       DateTime?
@@ -366,6 +405,9 @@ model StrategyBenchmarkRun {
   evaluationProfileType  String // "20K" | "50K" | "100K" | "CUSTOM"
   evaluationConfig       String // JSON snapshot of the EXACT evaluation profile used — immutable even if the live EvaluationAccount template changes later
   riskLevel              Int
+  // Fase 14 spec section 18 — reproducibility: which registered ResearchDataset (if any) every strategy in this run was simulated against. Loose reference, optional/nullable — undefined for every run predating Fase 14.
+  datasetId              String?
+  datasetHash            String?
   status                 String    @default("PENDING") // PENDING | RUNNING | DONE | FAILED
   error                  String?
   createdAt              DateTime  @default(now())

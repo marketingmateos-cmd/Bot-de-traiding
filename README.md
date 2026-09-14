@@ -480,6 +480,49 @@ a new "Hypothesis Validation" section in `/strategy-lab`.
   for every strategy (0% window win rate across the board) — consistent with Fase 11/12's "no
   demonstrated edge" finding, this time checked outside a single split.
 
+### Research Dataset Versioning (Fase 14) — `src/lib/research/researchDataset.ts`, `/datasets`
+
+Fase 13 ended on "the four baselines show no demonstrated edge, and the main bottleneck is dataset
+depth." Fase 14's job was to grow the real BTCUSDT H1 history past 2026-03-01→08-31 — and to build
+the versioning/reproducibility layer any larger dataset would need. **Only the second half
+happened.** This environment's network policy blocks every crypto-data host tried
+(`api.binance.com`, `data.binance.vision`, `api.coingecko.com`, `www.cryptodatadownload.com` — all
+returned a `403` CONNECT-tunnel policy denial from the egress proxy, confirmed live, not assumed
+from the README's own earlier note), and no additional real CSV exists on disk beyond the same six
+monthly zips Fase 9.1 already imported. Per spec section 16's own explicit instruction for exactly
+this situation ("si no es posible obtener varios años... no rellenar... indicar exactamente qué
+período real se consiguió"): **the real historical period stays 2026-03-01→08-31, 4,416 H1
+candles — nothing invented, nothing backfilled.**
+
+- **`ResearchDataset`**: a new Prisma model — never a second copy of `MarketData`. Registering one
+  re-validates a (symbol, timeframe, source) slice of ALREADY-imported candles fresh (ascending
+  timestamps, no duplicates, valid OHLC/volume via the same `validateCandleBatch` the importer
+  itself uses, H1-aligned intervals, nothing past the requested end) and computes a SHA-256
+  `datasetHash` over `timestamp|open|high|low|close|volume` per row in chronological order.
+  Idempotent: registering the identical range twice returns the same row (`@@unique` constraint),
+  and re-registering after nothing changed reproduces the identical hash (tested).
+- **Reused, not duplicated**: `computeMarketDataCoverage` (Fase 9.6) gained one additive optional
+  `range` parameter for gap/coverage math scoped to an arbitrary sub-range — every existing caller
+  omitting it is unaffected. `validateCandleBatch` (Fase 9) runs unmodified as the OHLC/volume gate.
+- **Reproducibility wired through, not just bolted on**: `ReplayConfig.datasetId` (optional) →
+  `executeReplay()` copies the dataset's OWN hash onto the `ReplayRun` row at run time (never just a
+  join) → `runStrategyBenchmark()` propagates the same id into every strategy's `ReplayConfig` and
+  stamps its own `StrategyBenchmarkRun` row too. Verified end-to-end: selecting the registered
+  dataset in `/strategy-lab` and running Momentum produced a `StrategyBenchmarkRun` and its
+  underlying `ReplayRun` both carrying the identical `datasetId`/`datasetHash`.
+- **`/datasets`**: register (symbol/timeframe/dates/source) and list every registered dataset with
+  all spec-required fields, plus a manifest viewer (`GET /api/datasets/[id]`) — the frozen,
+  self-describing snapshot spec section 7 asks for, never re-derived from `MarketData` at read time.
+- **Scope honestly**: Historical Replay's own separate form (`/replay`) was not given a dataset
+  picker — only Strategy Lab was, since that's the pipeline Fases 11-13 actually exercise. The API
+  layer (`ReplayConfig.datasetId`) already accepts one regardless.
+- **What did NOT happen, on purpose**: no baseline re-run on an "expanded" dataset (section 12-13 —
+  there is no expanded dataset to compare against), no new temporal-stability or regime-comparison
+  pass (section 14-15 — same reason). Re-running the exact same 6-month dataset now goes through the
+  new `datasetId` machinery and reproduces byte-identical trade counts, confirming the wiring itself
+  is correct — that is NOT the same claim as "the dataset grew," and this README does not conflate
+  the two.
+
 ### AI layer (spec #16, #17, #36)
 
 `AIAnalystOutput`/`AICriticOutput` are typed JSON, never free text — both the rule-based demo

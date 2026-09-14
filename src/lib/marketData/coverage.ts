@@ -44,8 +44,14 @@ export interface MarketDataCoverageReport {
  * single known source; pass an array to scope to a specific known set.
  * Always `isDemo: false` — a demo/synthetic row is never counted here
  * regardless of what's passed as `source`.
+ *
+ * `range` (Fase 14) is optional and additive: omit it for the original
+ * whole-history behavior every existing caller still uses unchanged; pass
+ * `{start, end}` to scope the SAME coverage/gap computation to an
+ * arbitrary sub-range — the one new thing `ResearchDataset` registration
+ * (Fase 14) needs, without duplicating this function's gap-detection math.
  */
-export async function computeMarketDataCoverage(symbol: string, timeframe: TimeframeCode, source?: string | string[]): Promise<MarketDataCoverageReport> {
+export async function computeMarketDataCoverage(symbol: string, timeframe: TimeframeCode, source?: string | string[], range?: { start: Date; end: Date }): Promise<MarketDataCoverageReport> {
   const requestedSources = source === undefined ? [] : Array.from(new Set(Array.isArray(source) ? source : [source])).sort();
 
   const asset = await prisma.asset.findUnique({ where: { symbol: symbol.toUpperCase() } });
@@ -54,7 +60,13 @@ export async function computeMarketDataCoverage(symbol: string, timeframe: Timef
   }
 
   const rows = await prisma.marketData.findMany({
-    where: { assetId: asset.id, timeframe, isDemo: false, ...(source !== undefined ? { source: Array.isArray(source) ? { in: source } : source } : {}) },
+    where: {
+      assetId: asset.id,
+      timeframe,
+      isDemo: false,
+      ...(source !== undefined ? { source: Array.isArray(source) ? { in: source } : source } : {}),
+      ...(range !== undefined ? { timestamp: { gte: range.start, lte: range.end } } : {}),
+    },
     orderBy: { timestamp: "asc" },
     select: { timestamp: true, quality: true, source: true },
   });

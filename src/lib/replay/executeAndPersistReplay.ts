@@ -29,6 +29,14 @@ export interface ReplayRunRequest {
 export async function executeReplay(request: ReplayRunRequest): Promise<string> {
   const { config } = request;
 
+  // Fase 14 — purely a reproducibility annotation (spec section 11): look up the
+  // referenced dataset's OWN hash at this exact moment and copy it onto the
+  // ReplayRun row, so the row stays reproducible-by-hash even if the
+  // ResearchDataset row is ever deleted or the underlying data changes later.
+  // Never alters which bars get fetched — an unknown/missing datasetId is
+  // simply recorded as null, never a reason to fail the whole replay.
+  const dataset = config.datasetId ? await prisma.researchDataset.findUnique({ where: { id: config.datasetId } }) : null;
+
   const run = await prisma.replayRun.create({
     data: {
       strategyId: config.strategyId,
@@ -42,6 +50,8 @@ export async function executeReplay(request: ReplayRunRequest): Promise<string> 
       riskLevel: config.riskLevel,
       hasSegments: Boolean(request.segments),
       hasWalkForward: Boolean(request.walkForward),
+      datasetId: dataset?.id ?? null,
+      datasetHash: dataset?.datasetHash ?? null,
       status: "RUNNING",
     },
   });

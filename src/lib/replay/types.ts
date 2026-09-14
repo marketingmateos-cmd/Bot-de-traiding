@@ -51,6 +51,8 @@ export interface ReplayConfig {
   slippageBpsOverride?: number;
   /** Fase 7G — parameter-perturbation robustness testing overrides the strategy's own defaultParams with this, when set. */
   strategyParamsOverride?: StrategyParams;
+  /** Fase 14 — the `ResearchDataset` this run is reproducing, when the caller picked a registered dataset instead of typing raw dates. Purely a reproducibility annotation (spec section 11: "registrar datasetId y datasetHash") — never changes what bars are fetched; `startDate`/`endDate` above still drive that exactly as before. `executeReplay()` persists this id (and the dataset's own hash at registration time) onto the resulting `ReplayRun` row. */
+  datasetId?: string;
 }
 
 /** One data source's real-vs-synthetic-vs-unavailable status for a single decision point — never silently blended. */

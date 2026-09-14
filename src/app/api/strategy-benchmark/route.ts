@@ -16,6 +16,8 @@ interface CreateBenchmarkBody {
   riskLevel: number;
   strategyIds: string[];
   dataSource: ReplayDataSource;
+  /** Fase 14 — optional: a registered ResearchDataset id to reproduce. */
+  datasetId?: string;
 }
 
 const VALID_PROFILES: EvaluationProfileType[] = ["20K", "50K", "100K", "CUSTOM"];
@@ -60,6 +62,7 @@ export async function POST(request: Request) {
     riskLevel: body.riskLevel,
     strategyIds: body.strategyIds,
     dataSource: body.dataSource,
+    datasetId: body.datasetId,
   });
 
   return NextResponse.json({ ok: true, benchmarkRunId });
