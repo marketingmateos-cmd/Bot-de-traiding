@@ -74,6 +74,8 @@ export interface ReplayDecisionRecord {
   asset: string;
   availability: ReplayDataAvailability;
   regime: Regime | null;
+  /** Fase 12 — the SAME `detectRegime()` call's `details.volatilityPercentile` (0-100, trailing-history percentile), persisted so a discrete volatility bucket can be derived at analysis time without re-running the (already causal, already-computed) Regime Engine. Undefined for any decision predating this field. */
+  volatilityPercentile?: number | null;
   strategyId: string;
   strategyName: string;
   signal: { direction: "LONG" | "SHORT"; strength: number; reason: string } | null;

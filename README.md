@@ -387,6 +387,64 @@ parameters. `/strategy-lab` (Backtest → Strategy Lab) is the UI; `POST /api/st
   it's one six-month trajectory for four intentionally un-optimized baselines; see the Strategy Lab
   UI's own on-screen disclaimer.
 
+### Regime-Aware Strategy Research (Fase 12) — `src/lib/research/regimeAnalysis.ts`
+
+Given Fase 11's result — none of the four baseline families showed a demonstrated edge — Fase 12
+asks a narrower question: **does performance depend strongly on market regime?** Pure
+post-processing over trades a benchmark run ALREADY simulated; never a second Regime Engine, never
+a re-run of the replay, never a parameter change. `GET /api/strategy-benchmark/[id]/regime-analysis`
+computes it on demand; `POST .../stability-check` reuses the existing IS/VALIDATION/OOS replay
+infrastructure (opt-in, per strategy) to see whether a regime's pattern repeats across segments.
+The `/strategy-lab` UI shows both per strategy, below the existing Fase 11 detail view.
+
+- **No future leakage, by construction, not by care**: every `ReplayTradeRecord` carries
+  `decisionIndex`, pointing at the EXACT `ReplayDecisionRecord` that opened it — same tick, same
+  `detectRegime()` call, same causal `barsAsOf` window the live pipeline already used. Joining
+  through that index is "regime at signal/entry time" structurally; there is no code path that
+  could attach a later regime to an earlier trade (tested explicitly, including with shuffled
+  timestamps and an out-of-range index).
+- **Volatility bucket is a new, additive axis**: the Regime Engine's own `HIGH_VOLATILITY`/
+  `LOW_VOLATILITY` values are rare, tail-only regimes, mutually exclusive with every trend/range
+  regime — not what "how volatile was this trade's environment" actually needs. `detectRegime()`
+  already computed a continuous `volatilityPercentile` and discarded it; Fase 12's only change to
+  `historicalReplayEngine.ts` persists that existing value onto `ReplayDecisionRecord`, and
+  `computeVolatilityBucket()` derives a documented tercile (`LOW`/`NORMAL`/`HIGH`, <25th/25-75th/
+  >75th percentile) from it — a genuinely new, clearly-labeled classification, not a
+  reinterpretation of the engine's own regimes.
+- **Statistical caution is one shared constant**: `MIN_SAMPLE_SIZE = 20` applied uniformly to
+  every grouping (regime, direction, volatility, hour, weekday, matrix cell). A thin cell's real
+  numbers are always still computed and returned — never hidden — but flagged
+  `insufficientSample: true`, and the UI visibly dims/labels those cells rather than presenting
+  them as equally solid.
+- **R-multiple, loss, and exit analysis** — `netPnl / (|entryPrice − stopLoss| × quantity)` per
+  trade (Fase 11 already captures `stopLoss` on every trade), the 10 largest losses, a
+  losing-streak length histogram, and exit-reason breakdown cross-tabbed by regime — to separate
+  "the strategy has no edge" from "the strategy has an edge but an unfavorable trade distribution."
+- **Strategy × Regime matrix**: one row per (strategy, observed regime), trades/PF/expectancy/
+  P&L, `insufficientSample` never dropped.
+- **No AI, no optimization anywhere in this module**: every number above comes from
+  `regimeAnalysis.ts`'s deterministic functions; the AI Analyst/Critic layer is untouched and has
+  no path to choose a regime, drop a trade, or influence these stats. Baseline strategies, stop-
+  loss/take-profit logic, and the Risk Engine are all byte-for-byte unchanged from Fase 11 —
+  re-running the exact same benchmark after this phase's changes reproduces IDENTICAL trade counts
+  and P&L per strategy (235/184/365/643 trades, confirmed).
+- **Real result from the same BTC H1 2026-03-01→2026-08-31 run**: `RANGE` is the dominant regime
+  by trade count for all four strategies and consistently unprofitable (PF 0.34-0.71 with
+  sufficient samples for every strategy). `LOW_VOLATILITY` is the worst regime for Mean Reversion
+  (PF 0.14, expectancy −7.78€) and Trend Following (PF 0.27, expectancy −7.10€), both with
+  sufficient samples. `HIGH_VOLATILITY` is the *least* unprofitable regime for three of four
+  strategies (PF 0.82-0.95) despite still not reaching 1.0. `BEAR` is the only regime near or
+  above breakeven with a reasonable sample (Trend Following: 28 trades, PF 1.03, expectancy
+  +0.36€); Momentum's BEAR cell looks better still (PF 1.19, +1.71€) but at only 13 trades is
+  flagged `INSUFFICIENT_SAMPLE` — a hypothesis to investigate further, not a conclusion. Every
+  single strategy's single largest loss happened in the same `HIGH_VOLATILITY` window
+  (2026-06-03 to 06-07), all via `STOP_LOSS` — a real, striking cross-strategy correlation, not
+  four independent worst trades. R-multiple distributions (median ≈ −1.1 to −1.2R, close to the
+  mean) show the negative expectancy is broad-based rather than driven by a few catastrophic
+  outliers. **None of this identifies an edge** — it identifies which regime/volatility
+  combinations are worth investigating further, and which (e.g. any BULL cell, most BEAR cells)
+  don't yet have enough trades to say anything.
+
 ### AI layer (spec #16, #17, #36)
 
 `AIAnalystOutput`/`AICriticOutput` are typed JSON, never free text — both the rule-based demo
