@@ -348,6 +348,45 @@ made visible by actually trying to trade for months at a time instead of one sca
 fixed here (would mean changing Risk Engine/strategy defaults, out of this phase's "no tocar"
 scope) — flagged for a deliberate follow-up decision.
 
+### Strategy Lab — Strategy Research & Evaluation Benchmark (Fase 11) — `src/lib/research/`
+
+Compares four **baseline** strategy families (Breakout, Momentum, Mean Reversion, Trend Following —
+`src/lib/engines/strategy/baseline/`) under IDENTICAL dataset/Risk Engine/Evaluation Profile
+conditions, to see which families show promising signals — never to declare a winner or tune
+parameters. `/strategy-lab` (Backtest → Strategy Lab) is the UI; `POST /api/strategy-benchmark` +
+`GET /api/strategy-benchmark/[id]` persist to `StrategyBenchmarkRun`/`StrategyBenchmarkResult`.
+
+- **Never duplicates the replay engine**: `runStrategyBenchmark()` calls the SAME
+  `executeReplay()` every Historical Replay run uses, once per baseline strategy with an
+  otherwise-identical `ReplayConfig` (`aiMode: DETERMINISTIC_AI` for reproducibility,
+  `dataSource: HISTORICAL_REAL` from the UI). Each strategy's trade simulation is a completely
+  normal `ReplayRun`/`ReplayResult` row — `StrategyBenchmarkResult` only adds the Evaluation Risk
+  Engine analysis and a composite score on top.
+- **Baseline strategies are simple and NOT optimized**: explicit, reasonable constants (e.g.
+  breakout `lookback:20, atrMultiplier:1.5, rrr:1.5`) — no grid search, no parameter fitting to this
+  dataset. Stop-loss is volatility-based (ATR over the strategy's own configured period, computed
+  only from bars at or before the current one); take-profit is `stopDistance × rrr`. A new,
+  additive `StrategySignal.stopLossPrice`/`takeProfitPrice` lets a strategy override
+  `historicalReplayEngine.ts`'s default fixed-% stop/target — every pre-existing strategy leaves
+  these unset and is unaffected.
+- **Evaluation Risk Engine reused, not duplicated**: `evaluateBenchmarkRun()` walks a completed
+  replay's own equity curve chronologically through the SAME `evaluateEvaluationAccount()` the live
+  MT5 pipeline uses (Fase MT5.2), to classify the single historical trajectory as `PASS` (target
+  reached before any hard failure), `FAIL` (an actual daily/total hard-stop breach), or
+  `INCONCLUSIVE` (neither, never mislabeled `FAIL` just for running out of time) — spec section 16:
+  this produces one Historical Outcome, never a "Probability of Passing" from a single path.
+- **Composite Score is a ranking aid only**: 30% profitability (return capped at 20%) + 30%
+  drawdown + 20% consistency (win rate + profit factor) + 20% evaluation survival — documented in
+  `benchmarkScore.ts` and shown in the UI, explicitly never used to pick parameters.
+- **Reproducibility**: `computeStrategyConfigHash()` hashes strategy id + version + exact params;
+  the exact same request run twice produces byte-identical persisted metrics (tested).
+- **Real result from BTC H1, 2026-03-01 → 2026-08-31 (`binance_csv`, 4,416 real candles)**: none of
+  the four families reached the +10% Phase 1 target. Momentum (-4.6%) and Breakout (-8.1%) ended
+  `INCONCLUSIVE`; Mean Reversion (-17.0%) and Trend Following (-21.9%) both `FAIL`ed a total hard
+  stop before the period ended. **This is not evidence that any family lacks edge in general** —
+  it's one six-month trajectory for four intentionally un-optimized baselines; see the Strategy Lab
+  UI's own on-screen disclaimer.
+
 ### AI layer (spec #16, #17, #36)
 
 `AIAnalystOutput`/`AICriticOutput` are typed JSON, never free text — both the rule-based demo

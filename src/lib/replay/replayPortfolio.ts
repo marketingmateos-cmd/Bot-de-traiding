@@ -39,6 +39,12 @@ export class ReplayPortfolio {
   readonly equityCurve: { t: number; equity: number }[] = [];
   private barsWithPositionOpen = 0;
   private totalBars = 0;
+  // Fase 11 — dollar-notional exposure (openNotional / equity), tracked as a
+  // running max/sum rather than a full per-tick curve (O(1) per tick, no
+  // extra memory for a 6-month H1 run). Distinct from `exposurePct()` above,
+  // which measures TIME in market, not how much of equity is deployed.
+  private maxNotionalExposurePctValue = 0;
+  private notionalExposurePctSum = 0;
 
   constructor(initialCapital: number) {
     this.initialCapital = initialCapital;
@@ -92,10 +98,25 @@ export class ReplayPortfolio {
       unrealized += sign * (price - p.entryPrice) * p.quantity;
     }
     if (this.open.size > 0) this.barsWithPositionOpen++;
-    this.equityCurve.push({ t: tMs, equity: this.cashBalance + unrealized });
+    const equity = this.cashBalance + unrealized;
+    this.equityCurve.push({ t: tMs, equity });
+
+    const notionalExposurePct = equity > 0 ? (this.openNotional() / equity) * 100 : 0;
+    this.maxNotionalExposurePctValue = Math.max(this.maxNotionalExposurePctValue, notionalExposurePct);
+    this.notionalExposurePctSum += notionalExposurePct;
   }
 
   exposurePct(): number {
     return this.totalBars > 0 ? (this.barsWithPositionOpen / this.totalBars) * 100 : 0;
+  }
+
+  /** Fase 11 — the largest fraction of equity ever deployed in open positions at once, across the whole run. */
+  maxNotionalExposurePct(): number {
+    return this.maxNotionalExposurePctValue;
+  }
+
+  /** Fase 11 — the average fraction of equity deployed in open positions, across every recorded tick (including ticks with nothing open, which count as 0%). */
+  avgNotionalExposurePct(): number {
+    return this.totalBars > 0 ? this.notionalExposurePctSum / this.totalBars : 0;
   }
 }

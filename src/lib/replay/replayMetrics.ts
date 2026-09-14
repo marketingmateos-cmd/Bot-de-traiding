@@ -11,7 +11,8 @@ export function computeReplayMetrics(
   equityCurve: { t: number; equity: number }[],
   trades: ReplayTradeRecord[],
   initialEquity: number,
-  exposurePct: number
+  exposurePct: number,
+  notionalExposure?: { max: number; avg: number }
 ): ReplayMetrics {
   const finalEquity = equityCurve.length > 0 ? equityCurve[equityCurve.length - 1].equity : initialEquity;
   const totalReturnPct = initialEquity > 0 ? ((finalEquity - initialEquity) / initialEquity) * 100 : 0;
@@ -88,5 +89,7 @@ export function computeReplayMetrics(
     longestWinStreak,
     longestLossStreak,
     volatilityPct,
+    maxExposurePct: notionalExposure?.max,
+    avgExposurePct: notionalExposure?.avg,
   };
 }

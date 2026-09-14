@@ -109,6 +109,9 @@ export interface ReplayTradeRecord {
   mae: number;
   mfe: number;
   decisionIndex: number; // index into the run's decisions[] that opened this trade
+  /** The stop/target PRICE levels this position was actually opened with — undefined for a run predating this field, never backfilled. Fase 11: lets a strategy's real per-trade RRR be derived (|takeProfit-entry| / |entry-stopLoss|) instead of assumed constant. */
+  stopLoss?: number | null;
+  takeProfit?: number | null;
 }
 
 /** Superset of BacktestMetrics (same field names/types) so existing benchmark/robustness/overfitting engines accept it unchanged. */
@@ -120,6 +123,9 @@ export interface ReplayMetrics extends BacktestMetrics {
   longestWinStreak: number;
   longestLossStreak: number;
   volatilityPct: number;
+  /** Fase 11 — dollar-notional exposure (openNotional / equity), distinct from `exposurePct`'s time-in-market %. Optional: undefined for any caller of computeReplayMetrics that doesn't supply it (none does today besides historicalReplayEngine.ts, which always does). */
+  maxExposurePct?: number;
+  avgExposurePct?: number;
 }
 
 export interface ReplayDataQualityReport {

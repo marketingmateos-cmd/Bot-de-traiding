@@ -20,6 +20,19 @@ export interface StrategySignal {
   direction: "LONG" | "SHORT";
   strength: number; // 0-1
   reason: string;
+  /**
+   * Optional volatility-based stop/target as absolute PRICE levels
+   * (Fase 11 — baseline research strategies). When present, the caller
+   * (`historicalReplayEngine.ts`) uses these INSTEAD of the strategy's
+   * fixed `defaultStopLossPct`/`defaultTakeProfitPct` — a strategy whose
+   * risk genuinely varies bar-to-bar (e.g. ATR-based) is not forced into a
+   * flat percentage. Every existing strategy leaves these undefined and is
+   * completely unaffected.
+   */
+  stopLossPrice?: number;
+  takeProfitPrice?: number;
+  /** Free-form audit fields a strategy wants recorded verbatim (e.g. breakoutLevel, stopDistance, RRR) — never interpreted, only carried through to the decision/trade record for transparency. */
+  meta?: Record<string, number | string>;
 }
 
 export interface StrategyContext {

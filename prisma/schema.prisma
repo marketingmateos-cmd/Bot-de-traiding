@@ -346,6 +346,51 @@ model ReplayResult {
   @@index([replayRunId])
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// STRATEGY RESEARCH & EVALUATION BENCHMARK (Fase 11) — compares the four
+// baseline strategy families under IDENTICAL dataset/risk/evaluation
+// conditions. Deliberately does NOT duplicate ReplayRun/ReplayResult: each
+// strategy's underlying trade simulation is a completely normal ReplayRun,
+// executed through the SAME `executeReplay()` every other replay uses.
+// `replayRunId` below is a loose string reference (never a Prisma relation)
+// to that row — mirroring `ReplayRun.strategyId`'s own established
+// convention for pointing at something outside this table's own FK graph.
+// ─────────────────────────────────────────────────────────────────────────
+
+model StrategyBenchmarkRun {
+  id                     String    @id @default(cuid())
+  datasetSymbol          String // internal Asset.symbol, e.g. "BTC"
+  timeframe              String
+  startDate              DateTime
+  endDate                DateTime
+  evaluationProfileType  String // "20K" | "50K" | "100K" | "CUSTOM"
+  evaluationConfig       String // JSON snapshot of the EXACT evaluation profile used — immutable even if the live EvaluationAccount template changes later
+  riskLevel              Int
+  status                 String    @default("PENDING") // PENDING | RUNNING | DONE | FAILED
+  error                  String?
+  createdAt              DateTime  @default(now())
+  completedAt            DateTime?
+
+  results StrategyBenchmarkResult[]
+}
+
+model StrategyBenchmarkResult {
+  id                 String               @id @default(cuid())
+  benchmarkRunId     String
+  benchmarkRun       StrategyBenchmarkRun @relation(fields: [benchmarkRunId], references: [id], onDelete: Cascade)
+  strategyId         String // baseline StrategyDefinition id, e.g. "breakout-baseline-v1"
+  strategyName       String
+  strategyVersion    String
+  strategyConfigHash String // spec section 20 — reproducibility
+  replayRunId        String // the underlying ReplayRun this strategy actually simulated as
+  metrics            String // JSON StrategyBenchmarkMetrics (performance/risk/evaluation/execution)
+  evaluationStatus   String // PASS | FAIL | INCONCLUSIVE
+  score              String // JSON BenchmarkScoreBreakdown
+  createdAt          DateTime             @default(now())
+
+  @@index([benchmarkRunId])
+}
+
 model Benchmark {
   id        String   @id @default(cuid())
   assetId   String

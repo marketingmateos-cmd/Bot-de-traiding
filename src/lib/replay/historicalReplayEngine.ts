@@ -135,6 +135,8 @@ export async function runReplayOnBars(
           mae: pos.mae,
           mfe: pos.mfe,
           decisionIndex: pos.decisionIndex,
+          stopLoss: pos.stopLoss,
+          takeProfit: pos.takeProfit,
         };
         portfolio.closePosition(pos.asset, pos.strategyId, trade);
       }
@@ -231,8 +233,12 @@ export async function runReplayOnBars(
           }
 
           const entryPrice = window[window.length - 1].close;
-          const stopLoss = signal.direction === "LONG" ? entryPrice * (1 - strategyDef.defaultStopLossPct / 100) : entryPrice * (1 + strategyDef.defaultStopLossPct / 100);
-          const takeProfit = signal.direction === "LONG" ? entryPrice * (1 + strategyDef.defaultTakeProfitPct / 100) : entryPrice * (1 - strategyDef.defaultTakeProfitPct / 100);
+          // Fase 11 — a strategy that computed its OWN volatility-based
+          // stop/target (e.g. ATR) carries it on the signal; every existing
+          // strategy leaves these undefined and gets the same fixed-%
+          // behavior as before.
+          const stopLoss = signal.stopLossPrice ?? (signal.direction === "LONG" ? entryPrice * (1 - strategyDef.defaultStopLossPct / 100) : entryPrice * (1 + strategyDef.defaultStopLossPct / 100));
+          const takeProfit = signal.takeProfitPrice ?? (signal.direction === "LONG" ? entryPrice * (1 + strategyDef.defaultTakeProfitPct / 100) : entryPrice * (1 - strategyDef.defaultTakeProfitPct / 100));
           const sizing = calculatePositionSize({ equity, entryPrice, stopLossPrice: stopLoss, riskPerTradePct: riskLimits.riskPerTradePct });
 
           const riskCheck = checkExposureLimits({
@@ -371,7 +377,10 @@ export async function runReplayOnBars(
   }
 
   const tradesInWindow = portfolio.closedTrades.filter((t) => new Date(t.exitTime).getTime() >= tradingStartMs);
-  const metrics = computeReplayMetrics(portfolio.equityCurve, tradesInWindow, config.initialCapital, portfolio.exposurePct());
+  const metrics = computeReplayMetrics(portfolio.equityCurve, tradesInWindow, config.initialCapital, portfolio.exposurePct(), {
+    max: portfolio.maxNotionalExposurePct(),
+    avg: portfolio.avgNotionalExposurePct(),
+  });
 
   return {
     label,
