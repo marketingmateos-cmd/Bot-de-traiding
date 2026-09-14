@@ -12,6 +12,7 @@ import { getStrategyPerformanceStats } from "@/lib/engines/strategyStats";
 import { assessEvidence } from "@/lib/engines/luckVsEdge";
 import { createSystemAlert } from "@/lib/engines/alerts";
 import { logAudit } from "@/lib/engines/auditLog";
+import { prepareMt5ScanContext, attemptMt5DemoExecution, type Mt5ScanContext } from "@/lib/execution/mt5ExecutionOrchestrator";
 import type { AIAnalystInput, AIAnalystOutput, AICriticOutput, TimeframeCode } from "@/lib/providers/types";
 import type { Regime } from "@/lib/engines/regime";
 import type { StrategyContext } from "@/lib/engines/strategy/types";
@@ -219,6 +220,27 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
   const riskLimits = resolveRiskLimitsForLevel(account.riskLevel);
   const aiProvider = getAIProvider();
   const budget = await getBudgetStatus();
+
+  // MT5 Fase 2 — additive, parallel execution hook. Computed ONCE per scan
+  // (mirrors riskLimits/budget above), never once per candidate. Returns
+  // null whenever MT5 demo execution isn't connected+enabled, in which case
+  // every candidate below simply skips the MT5 attempt and paper trading's
+  // own simulated positions proceed completely unaffected (spec section 19
+  // — the MT5 layer must be optional). Wrapped defensively: a bug or a
+  // transient MT5/adapter failure here must never break the paper-trading
+  // scan that this same loop also has to complete.
+  let mt5Context: Mt5ScanContext | null = null;
+  try {
+    mt5Context = await prepareMt5ScanContext();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await createSystemAlert({
+      kind: "MT5_SCAN_CONTEXT_ERROR",
+      severity: "WARN",
+      title: "No se pudo preparar el contexto de ejecución MT5 Demo",
+      message,
+    });
+  }
 
   for (const version of strategyVersions) {
     const strategyDef = getStrategyById(strategyDefinitionIdFromKind(version.strategy.kind));
@@ -469,6 +491,30 @@ async function runPaperTradingScanExclusive(accountId: string): Promise<ScanCand
         robustness: evidence,
         dailyProfitProtection: { state: profitProtection.state, config: profitProtectionConfig },
       });
+
+      // MT5 Fase 2 — the SAME candidate paper trading just evaluated (same
+      // signal, same entry/SL/TP, same Trade Gate verdict) is independently
+      // offered to the MT5 Demo pipeline, which applies its OWN Evaluation
+      // Risk Layer, its OWN MT5-specific exposure/sizing, and the full
+      // 15-point checklist (executionChecklist.ts) before ever placing a
+      // real (demo) order — this never reuses paper trading's own
+      // sizing/exposure numbers, which are for a completely different
+      // account/equity curve. A rejection or error here never affects
+      // paper trading's own decision below; `attemptMt5DemoExecution`
+      // never throws.
+      if (mt5Context) {
+        await attemptMt5DemoExecution(mt5Context, {
+          strategyId: version.id,
+          edgeLabSymbol: asset.symbol,
+          direction: signal.direction === "LONG" ? "BUY" : "SELL",
+          signalTimestamp: new Date(),
+          entryPrice,
+          stopLoss,
+          takeProfit,
+          tradeGateApproved: gate.verdict === "APPROVED",
+          tradeGateBlockedBy: gate.blockedBy,
+        });
+      }
 
       // Fase 2 fix — RiskEvent was a fully dead table (never written to).
       // One row per violation the Risk Engine actually raised for this

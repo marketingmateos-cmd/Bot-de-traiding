@@ -279,13 +279,20 @@ describe("Fase MT5.1 — architecture separation (spec section 1)", () => {
     expect(output).toBe("");
   });
 
-  it("PaperSimulation (paperTradingEngine.ts and its engines) never imports anything from src/lib/execution/", async () => {
+  it("the pure paper-simulation internals (paperExecution/positionStateManager/positionLifecycle) never import anything from src/lib/execution/ — only paperTradingEngine.ts's own additive MT5 hook may", async () => {
     const { execSync } = await import("node:child_process");
-    const output = execSync('grep -rl "lib/execution" src/lib/paperTradingEngine.ts src/lib/engines/paperExecution.ts src/lib/engines/positionStateManager.ts src/lib/engines/positionLifecycle.ts 2>/dev/null || true', {
+    const output = execSync('grep -rl "lib/execution" src/lib/engines/paperExecution.ts src/lib/engines/positionStateManager.ts src/lib/engines/positionLifecycle.ts 2>/dev/null || true', {
       cwd: process.cwd(),
     })
       .toString()
       .trim();
     expect(output).toBe("");
+  });
+
+  it("MT5 Fase 2, spec section 2/19 — paperTradingEngine.ts's ONLY door into src/lib/execution/ is the sanctioned mt5ExecutionOrchestrator hook, never mt5Client/mt5DemoExecutionAdapter/duplicateOrderGuard directly", async () => {
+    const { execSync } = await import("node:child_process");
+    const imports = execSync('grep -o \'lib/execution/[a-zA-Z0-9_-]*\' src/lib/paperTradingEngine.ts | sort -u', { cwd: process.cwd() }).toString().trim();
+    const importedModules = imports.split("\n").filter(Boolean);
+    expect(importedModules).toEqual(["lib/execution/mt5ExecutionOrchestrator"]);
   });
 });

@@ -18,3 +18,15 @@ export function getMt5ExecutionAdapter(): TradingExecutionAdapter {
   }
   return executionAdapter;
 }
+
+/**
+ * Test-only escape hatch (MT5 Fase 2, spec section 20): lets a test inject a
+ * fake `TradingExecutionAdapter` (typically `MT5DemoExecutionAdapter` wired
+ * to `makeFakeMt5Client()`) so `prepareMt5ScanContext()` exercises real
+ * orchestration code against a mock terminal — never a real MT5 connection,
+ * since none exists in this environment. Pass `null` to reset back to the
+ * default singleton.
+ */
+export function setMt5ExecutionAdapterForTesting(adapter: TradingExecutionAdapter | null): void {
+  executionAdapter = adapter;
+}

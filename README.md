@@ -422,10 +422,15 @@ rate and degrades to cache-only rather than ever crashing the app on quota exhau
   real Claude calls the moment `ANTHROPIC_API_KEY` is set — no code change required.
 - **MT5 demo integration is architecture-only, never live-tested** (see `docs/mt5-demo-integration.md`):
   `TradingExecutionAdapter`/`MT5DemoExecutionAdapter`, the demo-only safety gate, credential handling,
-  duplicate-order protection, and the `/accounts` UI are all real and tested — but MetaTrader 5 has no
-  public REST API (unlike Binance), so every test injects a fake `Mt5ClientLike`; this repo has never
-  connected to, and cannot test against, a real MT5 terminal. Live accounts are structurally rejected,
-  never just discouraged — there is no `allowLiveTrading` parameter anywhere in the codebase.
+  duplicate-order protection, the Evaluation Risk Engine (prop-firm-style phases/targets/drawdown
+  stops), the 15-point pre-flight execution checklist, MT5 lot-based position sizing, the
+  EdgeLab↔MT5 symbol mapper, the position synchronizer, reconnection safety, and the `/accounts` UI
+  are all real and tested — but MetaTrader 5 has no public REST API (unlike Binance), so every test
+  injects a fake `Mt5ClientLike`; this repo has never connected to, and cannot test against, a real
+  MT5 terminal. Live accounts are structurally rejected, never just discouraged — there is no
+  `allowLiveTrading` parameter anywhere in the codebase. The MT5 execution hook into the bot loop
+  (`mt5ExecutionOrchestrator.ts`) is strictly additive: Historical Replay and Paper Trading behave
+  identically whether or not MT5 is connected.
 
 ## Known bug found and fixed during build (documented for transparency)
 

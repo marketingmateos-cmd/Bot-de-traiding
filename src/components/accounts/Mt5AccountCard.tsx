@@ -25,7 +25,26 @@ interface Mt5ConnectionView {
   executionEnabled: boolean;
 }
 
+interface LastExecutionEventView {
+  symbol: string;
+  side: string;
+  status: string;
+  approvedVolume: number | null;
+  mt5Ticket: string | null;
+  rejectionReason: string | null;
+  failedCheck: string | null;
+  createdAt: string;
+}
+
 const STATUS_TONE: Record<Mt5ConnectionView["status"], BadgeTone> = { CONNECTED: "success", DISCONNECTED: "muted", ERROR: "danger" };
+
+const EXECUTION_EVENT_TONE: Record<string, BadgeTone> = {
+  FILLED: "success",
+  REJECTED: "warn",
+  FAILED_EXECUTION: "danger",
+  ERROR: "danger",
+  SUBMITTED: "info",
+};
 
 function money(value: number | null | undefined, currency: string | null | undefined) {
   if (value === null || value === undefined) return "—";
@@ -41,6 +60,7 @@ function money(value: number | null | undefined, currency: string | null | undef
  */
 export function Mt5AccountCard() {
   const [connection, setConnection] = useState<Mt5ConnectionView | null>(null);
+  const [lastEvent, setLastEvent] = useState<LastExecutionEventView | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [switchReasons, setSwitchReasons] = useState<string[]>([]);
@@ -49,7 +69,10 @@ export function Mt5AccountCard() {
   async function refresh() {
     const res = await fetch("/api/mt5/status");
     const json = await res.json();
-    if (json.ok) setConnection(json.connection);
+    if (json.ok) {
+      setConnection(json.connection);
+      setLastEvent(json.lastExecutionEvent ?? null);
+    }
   }
 
   useEffect(() => {
@@ -190,6 +213,23 @@ export function Mt5AccountCard() {
           No existe ningún botón &quot;Enable Live Trading&quot; ni parámetro para saltarse la verificación de cuenta demo. La activación requiere:
           conexión establecida, cuenta demo verificada, y ningún circuit breaker activo.
         </p>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 border-t border-bg-border pt-3 sm:grid-cols-3">
+          <StatTile
+            label="Execution Status"
+            value={lastEvent ? <Badge tone={EXECUTION_EVENT_TONE[lastEvent.status] ?? "neutral"}>{lastEvent.status}</Badge> : "—"}
+          />
+          <StatTile
+            label="Last Order"
+            value={lastEvent ? `${lastEvent.symbol} ${lastEvent.side}${lastEvent.approvedVolume ? ` · ${lastEvent.approvedVolume} lot` : ""}` : "—"}
+            sublabel={lastEvent ? (lastEvent.mt5Ticket ? `Ticket ${lastEvent.mt5Ticket}` : new Date(lastEvent.createdAt).toLocaleString()) : undefined}
+          />
+          <StatTile
+            label="Last Error"
+            value={lastEvent?.rejectionReason ? <span className="text-xs font-normal text-danger">{lastEvent.rejectionReason}</span> : "—"}
+            sublabel={lastEvent?.failedCheck ?? undefined}
+          />
+        </div>
       </Card>
     </div>
   );

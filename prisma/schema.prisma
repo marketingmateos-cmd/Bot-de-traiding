@@ -727,6 +727,15 @@ model ExecutionEvent {
   // never place a second order for the same signal, even across process
   // restarts (an in-memory-only lock would not survive one).
   idempotencyKey     String?  @unique
+  // Fase MT5.2 — which one of the 15 pre-flight checks rejected this
+  // signal, e.g. "MT5_CONNECTED" | "RISK_ENGINE" | "SL_TP_RRR" — see
+  // executionChecklist.ts. Null when status is not REJECTED.
+  failedCheck        String?
+  // The signal's own identity string (see duplicateOrderGuard.ts's
+  // SignalIdentity) — kept even when idempotencyKey collides with an
+  // existing row (a rejected duplicate never gets its own row; this field
+  // still lets a REJECTED row for a distinct signal be traced back to it).
+  signalId           String?
   symbol             String
   side               String // BUY | SELL
   requestedVolume    Float?
@@ -737,12 +746,99 @@ model ExecutionEvent {
   riskAmount         Float?
   rrr                Float?
   mt5Ticket          String?
-  status             String // REJECTED | SUBMITTED | FILLED | ERROR
+  status             String // REQUESTED | APPROVED | REJECTED | SUBMITTED | FILLED | FAILED_EXECUTION | ERROR | SYNCHRONIZED
   executionLatencyMs Int?
   rejectionReason    String?
   createdAt          DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MT5 EVALUATION / SYMBOL MAPPING / POSITION SYNC (Fase 2)
+// ─────────────────────────────────────────────────────────────────────────
+
+// Singleton row (id "main") — a prop-firm-style evaluation account layered
+// ON TOP of the MT5 demo connection. Deliberately separate from
+// `MT5DemoConnection` (spec section 10): MT5 sync only ever feeds live
+// readings (currentEquity) INTO the functions in evaluationRiskEngine.ts —
+// it never overwrites this row's own configured rules (targets/limits).
+// `profileType` records which template (20K/50K/100K) seeded this row, or
+// "CUSTOM"; the actual thresholds below are always the live, editable
+// source of truth regardless of which template created them.
+model EvaluationAccount {
+  id                  String    @id @default("main")
+  accountId           String    @default("main-paper-account")
+  profileType         String    @default("CUSTOM") // "20K" | "50K" | "100K" | "CUSTOM"
+  initialBalance      Float
+  phase               String    @default("PHASE_1") // PHASE_1 | PHASE_2
+  phase1TargetPct     Float     @default(10)
+  phase2TargetPct     Float     @default(5)
+  dailySafetyPct      Float     @default(-3) // negative — daily P&L% at/below this blocks new entries
+  dailyHardPct        Float     @default(-5) // negative — daily P&L% at/below this FAILS the evaluation
+  totalSafetyPct      Float     @default(-6) // negative — total P&L% at/below this halves currentRiskPct
+  totalHardPct        Float     @default(-10) // negative — total P&L% at/below this FAILS the evaluation
+  baseRiskPct         Float     @default(1)
+  minRRR              Float     @default(1.5)
+  // Portfolio-shape limits for THIS evaluation account specifically —
+  // deliberately separate from the paper account's Risk Level 1-10 dial
+  // (riskEngine.ts), since the evaluation is its own account with its own
+  // rules. Defaults mirror the existing BALANCED preset.
+  maxOpenPositions    Int       @default(4)
+  maxExposurePct      Float     @default(50)
+  maxConcentrationPct Float     @default(25)
+  status              String    @default("ACTIVE") // ACTIVE | TARGET_REACHED | FAILED — sticky once terminal, see evaluationRiskEngine.ts
+  // Day-boundary bookkeeping (spec section 11) — always computed in UTC
+  // shifted by `resetHourUtc`, NEVER server-local time, so a day never
+  // resets at the wrong moment depending on where this process happens to
+  // run. dayStartDate is the shifted-UTC "YYYY-MM-DD" key of the CURRENT
+  // trading day; dayStartEquity is the equity reading captured the first
+  // time that key was seen.
+  resetHourUtc        Int       @default(0)
+  dayStartDate        String?
+  dayStartEquity      Float?
+  startedAt           DateTime  @default(now())
+  targetReachedAt     DateTime?
+  daysToTarget        Int?
+  finalEquity         Float?
+  finalBalance        Float?
+  failureReason       String?
+  failedAt            DateTime?
+  updatedAt           DateTime  @updatedAt
+}
+
+// Explicit EdgeLab symbol <-> MT5 broker symbol mapping (spec section 5) —
+// never inferred. One row per EdgeLab symbol; `mt5Symbol` is whatever the
+// connected broker actually calls it (e.g. "BTCUSDm"). `enabled: false`
+// lets a mapping be turned off without deleting the audit trail of what it
+// used to point to.
+model Mt5SymbolMapping {
+  id            String   @id @default(cuid())
+  edgeLabSymbol String   @unique
+  mt5Symbol     String
+  enabled       Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
+}
+
+// Fase 2 — MT5PositionSynchronizer's own persisted view. MT5 itself is
+// always the source of truth (spec section 6/14): this table is a CACHE of
+// the adapter's last successful `getOpenPositions()` read, refreshed every
+// sync, never written to speculatively from an order response alone (see
+// mt5PositionSynchronizer.ts) — "EdgeLab nunca debe asumir que una orden
+// se ejecutó correctamente."
+model Mt5DemoPosition {
+  id            String   @id @default(cuid())
+  ticket        String   @unique
+  symbol        String
+  side          String
+  volume        Float
+  entryPrice    Float
+  currentPrice  Float
+  stopLoss      Float?
+  takeProfit    Float?
+  unrealizedPnl Float
+  openTime      DateTime
+  lastSyncedAt  DateTime @default(now())
 }
 
 // ─────────────────────────────────────────────────────────────────────────

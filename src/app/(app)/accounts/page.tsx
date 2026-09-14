@@ -1,4 +1,5 @@
 import { Mt5AccountCard } from "@/components/accounts/Mt5AccountCard";
+import { EvaluationAccountCard } from "@/components/accounts/EvaluationAccountCard";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ export default function AccountsPage() {
         </p>
       </div>
       <Mt5AccountCard />
+      <EvaluationAccountCard />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { ensureBotConfig } from "@/lib/botLoop";
 import { riskPresetForLevel } from "@/lib/engines/riskEngine";
 import { computeDrawdown } from "@/lib/engines/riskEngine";
 import { computeProfitProtectionStatus } from "@/lib/engines/dailyProfitProtection";
+import { evaluateCurrentState } from "@/lib/evaluation/evaluationAccountStore";
 import { Card } from "@/components/ui/Card";
 import { StatTile } from "@/components/ui/StatTile";
 import { Badge, verdictTone } from "@/components/ui/Badge";
@@ -21,7 +22,7 @@ const PROFIT_PROTECTION_TONE = { NORMAL: "success", PROFIT_PROTECTION: "warn", H
 const PROFIT_PROTECTION_LABEL = { NORMAL: "Normal", PROFIT_PROTECTION: "Protección de Beneficios", HARD_DAILY_STOP: "Parada Diaria" } as const;
 
 export default async function DashboardPage() {
-  const [account, openPositions, recentTrades, alerts, breakers, assets, botConfig, profitProtection] = await Promise.all([
+  const [account, openPositions, recentTrades, alerts, breakers, assets, botConfig, profitProtection, mt5Connection, evaluationRow] = await Promise.all([
     prisma.paperAccount.findUnique({ where: { id: ACCOUNT_ID } }),
     prisma.paperPosition.findMany({
       where: { accountId: ACCOUNT_ID, status: { in: ["OPEN", "PARTIALLY_CLOSED"] } },
@@ -34,7 +35,14 @@ export default async function DashboardPage() {
     prisma.asset.findMany({ where: { isActive: true } }),
     ensureBotConfig(),
     computeProfitProtectionStatus(ACCOUNT_ID),
+    prisma.mT5DemoConnection.findUnique({ where: { id: "main" } }),
+    prisma.evaluationAccount.findUnique({ where: { id: "main" } }),
   ]);
+
+  // MT5 Fase 2, spec section 14 — an optional summary, never rendered when
+  // nobody has connected MT5 yet, so Historical Replay / Paper Trading
+  // users see the dashboard exactly as before (spec section 19).
+  const mt5Evaluation = evaluationRow ? evaluateCurrentState(evaluationRow, mt5Connection?.equity ?? evaluationRow.finalEquity ?? evaluationRow.initialBalance) : null;
 
   const marketProvider = getMarketDataProvider();
   const positionsWithLive = await Promise.all(
@@ -142,6 +150,46 @@ export default async function DashboardPage() {
       )}
 
       <BotStatusCard marketsMonitored={assets.length} />
+
+      {mt5Connection && (
+        <Card
+          title="MT5 Demo"
+          subtitle={mt5Connection.broker ?? undefined}
+          actions={
+            <div className="flex items-center gap-2">
+              <Badge tone="warn">DEMO ONLY</Badge>
+              <Badge tone={mt5Connection.status === "CONNECTED" && mt5Connection.verifiedDemo ? "success" : mt5Connection.status === "ERROR" ? "danger" : "muted"}>
+                {mt5Connection.status === "CONNECTED" && !mt5Connection.verifiedDemo ? "LIVE BLOCKED" : mt5Connection.status}
+              </Badge>
+            </div>
+          }
+        >
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+            <StatTile label="Equity" value={mt5Connection.equity !== null ? `${mt5Connection.equity.toFixed(2)} ${mt5Connection.currency ?? ""}`.trim() : "—"} />
+            <StatTile label="Balance" value={mt5Connection.balance !== null ? `${mt5Connection.balance.toFixed(2)} ${mt5Connection.currency ?? ""}`.trim() : "—"} />
+            <StatTile label="Free Margin" value={mt5Connection.freeMargin !== null ? `${mt5Connection.freeMargin.toFixed(2)} ${mt5Connection.currency ?? ""}`.trim() : "—"} />
+            <StatTile label="Execution" value={<Badge tone={mt5Connection.executionEnabled ? "success" : "muted"}>{mt5Connection.executionEnabled ? "ENABLED" : "DISABLED"}</Badge>} />
+            {mt5Evaluation && (
+              <>
+                <StatTile
+                  label="Evaluation"
+                  value={<Badge tone={mt5Evaluation.status === "ACTIVE" ? "success" : mt5Evaluation.status === "TARGET_REACHED" ? "info" : "danger"}>{mt5Evaluation.status}</Badge>}
+                  sublabel={`${mt5Evaluation.totalPnlPct >= 0 ? "+" : ""}${mt5Evaluation.totalPnlPct.toFixed(2)}%`}
+                />
+                <StatTile
+                  label="Current Risk"
+                  value={`${mt5Evaluation.currentRiskPct}%`}
+                  sublabel={mt5Evaluation.currentRiskReason === "TOTAL_DRAWDOWN_PROTECTION" ? "TOTAL DRAWDOWN PROTECTION" : undefined}
+                  tone={mt5Evaluation.currentRiskReason === "TOTAL_DRAWDOWN_PROTECTION" ? "negative" : "neutral"}
+                />
+              </>
+            )}
+          </div>
+          <Link href="/accounts" className="mt-3 inline-block text-xs text-accent underline">
+            Ver Accounts completo →
+          </Link>
+        </Card>
+      )}
 
       <Card
         title="Risk Level"
