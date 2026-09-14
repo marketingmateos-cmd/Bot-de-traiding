@@ -9,7 +9,16 @@ export type StrategyKind =
   | "MEAN_REVERSION"
   | "VOLATILITY"
   | "MULTI_TIMEFRAME"
-  | "EVENT_DRIVEN";
+  | "EVENT_DRIVEN"
+  // Fase 17 — Signal Research Lab: new, structurally distinct hypothesis
+  // families (spec section 4). Kept separate from the pre-existing kinds
+  // above (never reused/renamed) so a research strategy's own label never
+  // gets confused with an existing live-trading strategy's semantics.
+  | "VOLATILITY_SQUEEZE"
+  | "VOLUME_CONFIRMATION"
+  | "TREND_PULLBACK"
+  | "BREAKOUT_CONFIRMATION"
+  | "MOMENTUM_REVERSAL";
 
 export interface StrategyParams {
   [key: string]: number | string | boolean;

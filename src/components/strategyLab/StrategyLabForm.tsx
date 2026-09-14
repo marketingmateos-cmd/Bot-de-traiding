@@ -20,6 +20,10 @@ interface StrategyMeta {
   name: string;
   version: string;
   defaultParams: Record<string, number | string | boolean>;
+  /** Fase 17 — true for the new Signal Research Lab strategies: pre-registered hypotheses, never optimized, never declared a winner. False/undefined for the Fase 11 baselines. */
+  experimental?: boolean;
+  family?: string;
+  hypothesis?: string;
 }
 
 interface StrategyBenchmarkResultView {
@@ -292,9 +296,21 @@ export function StrategyLabForm({ assetSymbols, strategies }: { assetSymbols: st
           <div className="text-xs text-slate-300">Estrategias</div>
           <div className="mt-2 flex flex-wrap gap-3">
             {strategies.map((s) => (
-              <label key={s.id} className="flex items-center gap-2 rounded border border-bg-border bg-black/20 px-2 py-1.5 text-xs text-slate-200">
-                <input type="checkbox" checked={selectedStrategyIds.includes(s.id)} onChange={() => toggleStrategy(s.id)} className="accent-accent" />
-                {s.name}
+              <label
+                key={s.id}
+                title={s.hypothesis ? `${s.family ?? ""} — ${s.hypothesis}` : undefined}
+                className="flex max-w-xs items-start gap-2 rounded border border-bg-border bg-black/20 px-2 py-1.5 text-xs text-slate-200"
+              >
+                <input type="checkbox" checked={selectedStrategyIds.includes(s.id)} onChange={() => toggleStrategy(s.id)} className="mt-0.5 accent-accent" />
+                <span className="flex flex-col">
+                  <span className="flex items-center gap-1.5">
+                    {s.name}
+                    {s.experimental && (
+                      <span className="rounded bg-warn/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warn">Experimental</span>
+                    )}
+                  </span>
+                  {s.family && <span className="text-[10px] text-muted">{s.family}</span>}
+                </span>
               </label>
             ))}
           </div>
