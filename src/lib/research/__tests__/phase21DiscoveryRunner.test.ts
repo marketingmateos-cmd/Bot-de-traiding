@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OHLCVBar } from "@/lib/providers/types";
-import { runFamilyADiscovery, runFamilyBDiscovery, runFamilyCDiscovery, runFamilyDDiscovery, runFamilyEDiscovery, runFamilyASegment, stratifyByRegime } from "../phase21DiscoveryRunner";
+import { runFamilyADiscovery, runFamilyBDiscovery, runFamilyCDiscovery, runFamilyDDiscovery, runFamilyEDiscovery, runFamilyASegment, computeRegimeSeries, stratifyByRegime, stratifyBucketByRegime } from "../phase21DiscoveryRunner";
 import { computeForwardReturns } from "../phase21EdgeStudy";
 import { DiscoveryContaminationError } from "../phase21Discovery";
 import { FROZEN_RANGES } from "../phase21PreRegistration";
@@ -109,19 +109,20 @@ describe("Fase 21 Discovery runner — no lookahead (mutating a bar strictly aft
   });
 });
 
-describe("stratifyByRegime — causal regime cross-tabulation", () => {
+describe("computeRegimeSeries + stratifyByRegime — causal regime cross-tabulation", () => {
   it("never marks a cell with n >= minSampleSize as insufficientSample, and vice versa", () => {
     const bars = buildSyntheticSeries(1000);
     const closes = bars.map((b) => b.close);
     const forward = computeForwardReturns(closes, 6);
     const indices = Array.from({ length: bars.length }, (_, i) => i);
-    const cells = stratifyByRegime(bars, indices, forward, 20);
+    const regimeSeries = computeRegimeSeries(bars);
+    const cells = stratifyByRegime(regimeSeries, indices, forward, 20);
     for (const cell of cells) {
       expect(cell.insufficientSample).toBe(cell.n < 20);
     }
   });
 
-  it("computes regime causally — only ever looks at bars up to and including t (never a later bar)", () => {
+  it("computeRegimeSeries is causal — only ever looks at bars up to and including t (never a later bar)", () => {
     const bars = buildSyntheticSeries(500);
     const closes = bars.map((b) => b.close);
     const forward = computeForwardReturns(closes, 6);
@@ -130,9 +131,65 @@ describe("stratifyByRegime — causal regime cross-tabulation", () => {
     const mutated = bars.map((b) => ({ ...b }));
     mutated[450] = { ...mutated[450], close: mutated[450].close * 10, high: mutated[450].high * 10, low: mutated[450].low * 10 };
 
-    const base = stratifyByRegime(bars, indices, forward, 1);
-    const withFutureMutation = stratifyByRegime(mutated, indices, forward, 1);
+    const baseRegimes = computeRegimeSeries(bars);
+    const mutatedRegimes = computeRegimeSeries(mutated);
+    const base = stratifyByRegime(baseRegimes, indices, forward, 1);
+    const withFutureMutation = stratifyByRegime(mutatedRegimes, indices, forward, 1);
     // None of the tested indices (200/300/400) are >= 450, so mutating bar 450 must never affect their regime classification.
     expect(withFutureMutation).toEqual(base);
+    // And directly: the regime AT each tested index must be byte-identical before/after the future mutation.
+    for (const t of indices) {
+      expect(mutatedRegimes[t]).toEqual(baseRegimes[t]);
+    }
+  });
+
+  it("computeRegimeSeries is deterministic across two independent calls on the same bars", () => {
+    const bars = buildSyntheticSeries(300);
+    expect(computeRegimeSeries(bars)).toEqual(computeRegimeSeries(bars));
+  });
+});
+
+describe("BucketResult.indices/values + stratifyBucketByRegime — Family F must cross-tabulate the bucket's OWN events, never the unconditional series", () => {
+  it("every bucket's indices/values are parallel arrays of the same length as stats.n", () => {
+    const bars = buildSyntheticSeries(3000);
+    const allBuckets = [...runFamilyBDiscovery(bars), ...runFamilyCDiscovery(bars), ...runFamilyDDiscovery(bars), ...runFamilyEDiscovery(bars)];
+    for (const b of allBuckets) {
+      expect(b.indices).toHaveLength(b.stats.n);
+      expect(b.values).toHaveLength(b.stats.n);
+    }
+  });
+
+  it("two buckets sharing the same horizon but different conditions produce DIFFERENT regime cross-tabs (not the byte-identical unconditional table)", () => {
+    const bars = buildSyntheticSeries(3000);
+    const regimeSeries = computeRegimeSeries(bars);
+    const [highH1] = runFamilyBDiscovery(bars); // h1_EXTREME_HIGH
+    const [, lowH1] = runFamilyBDiscovery(bars); // h1_EXTREME_LOW
+    expect(highH1.indices).not.toEqual(lowH1.indices);
+    const highCells = stratifyBucketByRegime(regimeSeries, highH1, 1);
+    const lowCells = stratifyBucketByRegime(regimeSeries, lowH1, 1);
+    // Cross-tabs over genuinely different event sets must not be identical.
+    expect(highCells).not.toEqual(lowCells);
+  });
+
+  it("stratifyBucketByRegime on a bucket's own indices matches manually stratifying with a sparse array built the same way", () => {
+    const bars = buildSyntheticSeries(3000);
+    const regimeSeries = computeRegimeSeries(bars);
+    const [bucket] = runFamilyCDiscovery(bars);
+    const sparse: (number | null)[] = new Array(bars.length).fill(null);
+    bucket.indices.forEach((t, i) => {
+      sparse[t] = bucket.values[i];
+    });
+    const expected = stratifyByRegime(regimeSeries, bucket.indices, sparse, 1);
+    expect(stratifyBucketByRegime(regimeSeries, bucket, 1)).toEqual(expected);
+  });
+
+  it("cell totals across regimes sum to the bucket's own sample size (every event is counted exactly once, in exactly one regime, or dropped only when regime is null)", () => {
+    const bars = buildSyntheticSeries(3000);
+    const regimeSeries = computeRegimeSeries(bars);
+    const [bucket] = runFamilyEDiscovery(bars);
+    const cells = stratifyBucketByRegime(regimeSeries, bucket, 1);
+    const totalInCells = cells.reduce((sum, c) => sum + c.n, 0);
+    const droppedForNullRegime = bucket.indices.filter((t) => regimeSeries[t] === null).length;
+    expect(totalInCells + droppedForNullRegime).toBe(bucket.indices.length);
   });
 });

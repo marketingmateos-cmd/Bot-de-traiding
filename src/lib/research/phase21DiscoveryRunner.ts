@@ -48,6 +48,10 @@ export interface BucketResult {
   stats: ConditionalReturnStats;
   ci: BlockBootstrapCI;
   evidence: SignalEvidence;
+  /** Bar indices (into the bars array passed to this run) that satisfied this bucket's condition — enables Family F to cross-tabulate the SAME events by regime, instead of the unconditional series. */
+  indices: number[];
+  /** The per-event return value actually used for stats/ci above (e.g. Family E's direction-adjusted forward return), parallel to `indices` — lets Family F reuse the exact same values instead of recomputing/guessing them. */
+  values: number[];
 }
 
 // ── Familia A ─────────────────────────────────────────────────────────
@@ -82,20 +86,27 @@ function familyBForHorizon(bars: OHLCVBar[], horizon: number): BucketResult[] {
   const forward = computeForwardReturns(closes, horizon);
   const highReturns: number[] = [];
   const lowReturns: number[] = [];
+  const highIndices: number[] = [];
+  const lowIndices: number[] = [];
   for (let t = 0; t < closes.length; t++) {
     const rank = computeTrailingPercentileRank(trailing, t, F21B_PERCENTILE_LOOKBACK);
     const fwd = forward[t];
     if (rank === null || fwd === null) continue;
-    if (rank >= 100 - F21B_EXTREME_PERCENTILE) highReturns.push(fwd);
-    else if (rank <= F21B_EXTREME_PERCENTILE) lowReturns.push(fwd);
+    if (rank >= 100 - F21B_EXTREME_PERCENTILE) {
+      highReturns.push(fwd);
+      highIndices.push(t);
+    } else if (rank <= F21B_EXTREME_PERCENTILE) {
+      lowReturns.push(fwd);
+      lowIndices.push(t);
+    }
   }
   const highStats = computeConditionalStats(highReturns);
   const highCI = bootstrapMeanCI(highReturns, F21B_BOOTSTRAP_CONFIG);
   const lowStats = computeConditionalStats(lowReturns);
   const lowCI = bootstrapMeanCI(lowReturns, F21B_BOOTSTRAP_CONFIG);
   return [
-    { label: `h${horizon}_EXTREME_HIGH`, stats: highStats, ci: highCI, evidence: classifySignalEvidence(highStats, highCI, 1, MIN_SAMPLE_SIZE) },
-    { label: `h${horizon}_EXTREME_LOW`, stats: lowStats, ci: lowCI, evidence: classifySignalEvidence(lowStats, lowCI, -1, MIN_SAMPLE_SIZE) },
+    { label: `h${horizon}_EXTREME_HIGH`, stats: highStats, ci: highCI, evidence: classifySignalEvidence(highStats, highCI, 1, MIN_SAMPLE_SIZE), indices: highIndices, values: highReturns },
+    { label: `h${horizon}_EXTREME_LOW`, stats: lowStats, ci: lowCI, evidence: classifySignalEvidence(lowStats, lowCI, -1, MIN_SAMPLE_SIZE), indices: lowIndices, values: lowReturns },
   ];
 }
 
@@ -122,6 +133,8 @@ function familyCForHorizon(bars: OHLCVBar[], horizon: number): FamilyCBucketResu
   const highReturns: number[] = [];
   const lowVols: number[] = [];
   const highVols: number[] = [];
+  const lowIndices: number[] = [];
+  const highIndices: number[] = [];
   for (let t = 0; t < closes.length; t++) {
     const rank = computeTrailingPercentileRank(atrArr, t, F21C_PERCENTILE_LOOKBACK);
     const fwd = forward[t];
@@ -129,9 +142,11 @@ function familyCForHorizon(bars: OHLCVBar[], horizon: number): FamilyCBucketResu
     const fwdVol = computeForwardRealizedVol(closes, t, horizon);
     if (rank <= F21C_LOW_VOL_PERCENTILE) {
       lowReturns.push(fwd);
+      lowIndices.push(t);
       if (fwdVol !== null) lowVols.push(fwdVol);
     } else if (rank >= F21C_HIGH_VOL_PERCENTILE) {
       highReturns.push(fwd);
+      highIndices.push(t);
       if (fwdVol !== null) highVols.push(fwdVol);
     }
   }
@@ -141,8 +156,8 @@ function familyCForHorizon(bars: OHLCVBar[], horizon: number): FamilyCBucketResu
   const highStats = computeConditionalStats(highReturns);
   const highCI = bootstrapMeanCI(highReturns, F21C_BOOTSTRAP_CONFIG);
   return [
-    { label: `h${horizon}_LOW_VOL`, stats: lowStats, ci: lowCI, evidence: classifySignalEvidence(lowStats, lowCI, 1, MIN_SAMPLE_SIZE), meanForwardVol: mean(lowVols) },
-    { label: `h${horizon}_HIGH_VOL`, stats: highStats, ci: highCI, evidence: classifySignalEvidence(highStats, highCI, 1, MIN_SAMPLE_SIZE), meanForwardVol: mean(highVols) },
+    { label: `h${horizon}_LOW_VOL`, stats: lowStats, ci: lowCI, evidence: classifySignalEvidence(lowStats, lowCI, 1, MIN_SAMPLE_SIZE), meanForwardVol: mean(lowVols), indices: lowIndices, values: lowReturns },
+    { label: `h${horizon}_HIGH_VOL`, stats: highStats, ci: highCI, evidence: classifySignalEvidence(highStats, highCI, 1, MIN_SAMPLE_SIZE), meanForwardVol: mean(highVols), indices: highIndices, values: highReturns },
   ];
 }
 
@@ -169,6 +184,10 @@ function familyDForHorizon(bars: OHLCVBar[], horizon: number): BucketResult[] {
   const divergentUp: number[] = [];
   const confirmedDown: number[] = [];
   const divergentDown: number[] = [];
+  const confirmedUpIdx: number[] = [];
+  const divergentUpIdx: number[] = [];
+  const confirmedDownIdx: number[] = [];
+  const divergentDownIdx: number[] = [];
 
   for (let t = F21D_BREAKOUT_LOOKBACK; t < closes.length; t++) {
     const fwd = forward[t];
@@ -182,25 +201,35 @@ function familyDForHorizon(bars: OHLCVBar[], horizon: number): BucketResult[] {
     const z = volZ[t];
 
     if (closes[t] > rangeHigh) {
-      if (z !== null && z >= F21D_VOLUME_ZSCORE_THRESHOLD) confirmedUp.push(fwd);
-      else if (meanPriorVol > 0 && volumes[t] / meanPriorVol < F21D_LOW_VOLUME_RATIO) divergentUp.push(fwd);
+      if (z !== null && z >= F21D_VOLUME_ZSCORE_THRESHOLD) {
+        confirmedUp.push(fwd);
+        confirmedUpIdx.push(t);
+      } else if (meanPriorVol > 0 && volumes[t] / meanPriorVol < F21D_LOW_VOLUME_RATIO) {
+        divergentUp.push(fwd);
+        divergentUpIdx.push(t);
+      }
     } else if (closes[t] < rangeLow) {
-      if (z !== null && z >= F21D_VOLUME_ZSCORE_THRESHOLD) confirmedDown.push(fwd);
-      else if (meanPriorVol > 0 && volumes[t] / meanPriorVol < F21D_LOW_VOLUME_RATIO) divergentDown.push(fwd);
+      if (z !== null && z >= F21D_VOLUME_ZSCORE_THRESHOLD) {
+        confirmedDown.push(fwd);
+        confirmedDownIdx.push(t);
+      } else if (meanPriorVol > 0 && volumes[t] / meanPriorVol < F21D_LOW_VOLUME_RATIO) {
+        divergentDown.push(fwd);
+        divergentDownIdx.push(t);
+      }
     }
   }
 
-  const build = (label: string, sample: number[], expectedSign: 1 | -1): BucketResult => {
+  const build = (label: string, sample: number[], expectedSign: 1 | -1, indices: number[]): BucketResult => {
     const stats = computeConditionalStats(sample);
     const ci = bootstrapMeanCI(sample, F21D_BOOTSTRAP_CONFIG);
-    return { label, stats, ci, evidence: classifySignalEvidence(stats, ci, expectedSign, MIN_SAMPLE_SIZE) };
+    return { label, stats, ci, evidence: classifySignalEvidence(stats, ci, expectedSign, MIN_SAMPLE_SIZE), indices, values: sample };
   };
 
   return [
-    build(`h${horizon}_BREAKOUT_UP_CONFIRMED`, confirmedUp, 1),
-    build(`h${horizon}_BREAKOUT_UP_DIVERGENT`, divergentUp, 1),
-    build(`h${horizon}_BREAKOUT_DOWN_CONFIRMED`, confirmedDown, -1),
-    build(`h${horizon}_BREAKOUT_DOWN_DIVERGENT`, divergentDown, -1),
+    build(`h${horizon}_BREAKOUT_UP_CONFIRMED`, confirmedUp, 1, confirmedUpIdx),
+    build(`h${horizon}_BREAKOUT_UP_DIVERGENT`, divergentUp, 1, divergentUpIdx),
+    build(`h${horizon}_BREAKOUT_DOWN_CONFIRMED`, confirmedDown, -1, confirmedDownIdx),
+    build(`h${horizon}_BREAKOUT_DOWN_DIVERGENT`, divergentDown, -1, divergentDownIdx),
   ];
 }
 
@@ -223,6 +252,8 @@ function familyEForHorizon(bars: OHLCVBar[], horizon: number): BucketResult[] {
 
   const shortCoil: number[] = [];
   const longCoil: number[] = [];
+  const shortCoilIdx: number[] = [];
+  const longCoilIdx: number[] = [];
 
   for (let t = 1; t < bars.length; t++) {
     const currentAtr = atrArr[t];
@@ -235,18 +266,23 @@ function familyEForHorizon(bars: OHLCVBar[], horizon: number): BucketResult[] {
     if (coilLen === 0) continue; // no hubo compresión previa — no es el evento que esta familia estudia
     const direction = closes[t] >= closes[t - 1] ? 1 : -1;
     const directionalFwd = direction * fwd;
-    if (coilLen < F21E_MIN_COIL_LENGTH) shortCoil.push(directionalFwd);
-    else longCoil.push(directionalFwd);
+    if (coilLen < F21E_MIN_COIL_LENGTH) {
+      shortCoil.push(directionalFwd);
+      shortCoilIdx.push(t);
+    } else {
+      longCoil.push(directionalFwd);
+      longCoilIdx.push(t);
+    }
   }
 
-  const build = (label: string, sample: number[]): BucketResult => {
+  const build = (label: string, sample: number[], indices: number[]): BucketResult => {
     const stats = computeConditionalStats(sample);
     const ci = bootstrapMeanCI(sample, F21E_BOOTSTRAP_CONFIG);
     // directionalFwd ya está alineado con la dirección de la ruptura — bajo la hipótesis de continuación, se espera positivo.
-    return { label, stats, ci, evidence: classifySignalEvidence(stats, ci, 1, MIN_SAMPLE_SIZE) };
+    return { label, stats, ci, evidence: classifySignalEvidence(stats, ci, 1, MIN_SAMPLE_SIZE), indices, values: sample };
   };
 
-  return [build(`h${horizon}_SHORT_COIL`, shortCoil), build(`h${horizon}_LONG_COIL`, longCoil)];
+  return [build(`h${horizon}_SHORT_COIL`, shortCoil, shortCoilIdx), build(`h${horizon}_LONG_COIL`, longCoil, longCoilIdx)];
 }
 
 function familyE(bars: OHLCVBar[]): BucketResult[] {
@@ -268,18 +304,35 @@ export interface RegimeCell {
 }
 
 /**
- * Estratifica un conjunto YA CALCULADO de (índice, retornoFuturo) por el
- * régimen vigente en ese índice — reutiliza `detectRegime` sin modificarlo.
- * `bars` debe ser la MISMA serie usada para calcular `forwardReturns`
- * (mismos índices). Nunca declara una celda con n < minSampleSize.
+ * Precalcula el régimen vigente en CADA índice de la serie, UNA sola vez
+ * por activo — reutiliza `detectRegime` sin modificarlo. Family F cruza
+ * potencialmente muchos buckets (B/C/D/E × horizontes) contra el mismo
+ * activo; recalcular `detectRegime(bars.slice(0, t+1))` (O(t) cada vez)
+ * por separado para cada bucket sería redundante en el mismo trabajo
+ * O(n²) una y otra vez. Calculado aquí una única vez y reutilizado como
+ * lookup por `stratifyByRegime` para cualquier número de buckets.
  */
-export function stratifyByRegime(bars: OHLCVBar[], indices: number[], forwardReturns: (number | null)[], minSampleSize = MIN_SAMPLE_SIZE): RegimeCell[] {
+export function computeRegimeSeries(bars: OHLCVBar[]): (Regime | null)[] {
+  const regimes: (Regime | null)[] = new Array(bars.length).fill(null);
+  for (let t = 60; t < bars.length; t++) {
+    // detectRegime necesita >=60 bars para no caer en su fallback de baja confianza (TRANSITION).
+    regimes[t] = detectRegime(bars.slice(0, t + 1)).regime;
+  }
+  return regimes;
+}
+
+/**
+ * Estratifica un conjunto YA CALCULADO de (índice, retornoFuturo) por el
+ * régimen vigente en ese índice, usando una serie de régimen YA
+ * PRECALCULADA (`computeRegimeSeries`) — nunca recalcula `detectRegime`
+ * por sí misma. Nunca declara una celda con n < minSampleSize.
+ */
+export function stratifyByRegime(regimeSeries: (Regime | null)[], indices: number[], forwardReturns: (number | null)[], minSampleSize = MIN_SAMPLE_SIZE): RegimeCell[] {
   const byRegime = new Map<Regime, number[]>();
   for (const t of indices) {
     const fwd = forwardReturns[t];
-    if (fwd === null) continue;
-    if (t < 60) continue; // detectRegime necesita >=60 bars para no caer en su fallback de baja confianza
-    const regime = detectRegime(bars.slice(0, t + 1)).regime;
+    const regime = regimeSeries[t];
+    if (fwd === null || regime === null) continue;
     if (!byRegime.has(regime)) byRegime.set(regime, []);
     byRegime.get(regime)!.push(fwd);
   }
@@ -287,4 +340,19 @@ export function stratifyByRegime(bars: OHLCVBar[], indices: number[], forwardRet
     const n = values.length;
     return { regime, n, meanForward: n > 0 ? values.reduce((a, b) => a + b, 0) / n : null, insufficientSample: n < minSampleSize };
   });
+}
+
+/**
+ * Family F on a SPECIFIC bucket's own events (not the unconditional series at that
+ * horizon) — takes a `BucketResult` straight from Family B/C/D/E and cross-tabulates
+ * exactly the events that satisfied that bucket's condition, using the exact same
+ * per-event values (`bucket.values`, e.g. Family E's direction-adjusted forward
+ * return) rather than recomputing/guessing an unconditional forward-return series.
+ */
+export function stratifyBucketByRegime(regimeSeries: (Regime | null)[], bucket: BucketResult, minSampleSize = MIN_SAMPLE_SIZE): RegimeCell[] {
+  const sparse: (number | null)[] = new Array(regimeSeries.length).fill(null);
+  bucket.indices.forEach((t, i) => {
+    sparse[t] = bucket.values[i];
+  });
+  return stratifyByRegime(regimeSeries, bucket.indices, sparse, minSampleSize);
 }
