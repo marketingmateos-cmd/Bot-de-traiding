@@ -249,3 +249,56 @@ describe("registerResearchDataset — símbolo/timeframe diferentes se separan c
     expect(h4Ds.rowCount).toBe(2); // only the 2 H4 candles, never picking up the H1 rows
   });
 });
+
+describe("registerResearchDataset — expanding history for an already-registered symbol never touches the existing (narrower) ResearchDataset row (Fase 21 spec Condición 2)", () => {
+  // Mirrors the real Fase 21 operation: a NARROW range (the "frozen benchmark")
+  // gets registered first; later, MORE history for the SAME symbol/timeframe/
+  // source is imported and registered as a SEPARATE, WIDER range. The unique
+  // constraint is (symbol, timeframe, startDate, endDate, source) — a
+  // different startDate/endDate is, by construction, a DIFFERENT row, never
+  // an update to the narrow one. This test proves that in practice, not just
+  // by reading the schema.
+  const stepMs = 3_600_000;
+  const narrowStart = Date.UTC(2026, 2, 1); // "frozen benchmark" start
+  const narrowEnd = narrowStart + 4 * stepMs;
+  const wideStart = Date.UTC(2026, 0, 1); // earlier history added later
+  const wideEnd = narrowEnd;
+  const source = "fase21_expansion_test";
+  let assetId: string;
+
+  beforeAll(async () => {
+    const asset = await prisma.asset.upsert({ where: { symbol: "BTC" }, update: {}, create: { symbol: "BTC", name: "Bitcoin" } });
+    assetId = asset.id;
+    // Rows spanning the WIDE range from the start — as if the extra history
+    // had already been imported before either registration call runs (this
+    // test only exercises registerResearchDataset, not the importer itself).
+    const totalHours = Math.round((wideEnd - wideStart) / stepMs) + 1;
+    for (let i = 0; i < totalHours; i++) {
+      const ts = new Date(wideStart + i * stepMs);
+      await prisma.marketData.create({ data: { assetId, timeframe: "H1", timestamp: ts, open: 100, high: 101 + i, low: 99, close: 100 + i, volume: 10, source, isDemo: false, quality: 100 } });
+    }
+  });
+
+  afterAll(async () => {
+    await prisma.marketData.deleteMany({ where: { assetId, timeframe: "H1", source } });
+    await prisma.researchDataset.deleteMany({ where: { symbol: "BTC", timeframe: "H1", source } });
+  });
+
+  it("registering the wide range AFTER the narrow one leaves the narrow row's id/hash/rowCount byte-identical", async () => {
+    const narrow = await registerResearchDataset({ symbol: "BTC", timeframe: "H1", startDate: new Date(narrowStart), endDate: new Date(narrowEnd), source });
+    const narrowSnapshot = { ...narrow };
+
+    const wide = await registerResearchDataset({ symbol: "BTC", timeframe: "H1", startDate: new Date(wideStart), endDate: new Date(wideEnd), source });
+
+    // Re-read the narrow row fresh from the DB — not just the in-memory value returned earlier.
+    const narrowAfter = await prisma.researchDataset.findUnique({ where: { id: narrow.id } });
+
+    expect(narrowAfter).toEqual(narrowSnapshot);
+    expect(wide.id).not.toBe(narrow.id);
+    expect(wide.rowCount).toBeGreaterThan(narrow.rowCount);
+    expect(wide.datasetHash).not.toBe(narrow.datasetHash);
+
+    const count = await prisma.researchDataset.count({ where: { symbol: "BTC", timeframe: "H1", source } });
+    expect(count).toBe(2); // both rows coexist — neither was overwritten or merged
+  });
+});

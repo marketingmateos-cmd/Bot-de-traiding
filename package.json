@@ -24,6 +24,7 @@
     "db:studio": "prisma studio",
     "market-data:import": "tsx scripts/import-historical-market-data.mjs",
     "market-data:import:file": "tsx scripts/import-historical-market-data-from-file.mjs",
+    "market-data:import:batch": "tsx scripts/import-historical-market-data-batch.mjs",
     "market-data:coverage": "tsx scripts/check-market-data-coverage.mjs",
     "desktop:prepare": "node scripts/prepare-desktop.mjs",
     "desktop:dev": "electron .",
