@@ -523,6 +523,62 @@ candles — nothing invented, nothing backfilled.**
   is correct — that is NOT the same claim as "the dataset grew," and this README does not conflate
   the two.
 
+### Replay & Execution Integrity Audit (Fase 15) — `src/lib/replay/pnlReferenceModel.ts`
+
+Before trusting Fase 11-14's negative results, Fase 15 audited whether `HistoricalReplayEngine`
+actually simulates what it claims to: DATA → SIGNAL → RISK → SIZE → ENTRY → SL/TP → EXIT → P&L →
+EQUITY → DAILY/TOTAL LOSS → EVALUATION. **Conclusion: no material execution integrity bugs found.**
+36 new targeted tests (`src/lib/replay/__tests__/executionIntegrityAudit.test.ts`) all passed on
+first write, on top of the pre-existing, already-thorough `riskEngine.test.ts`,
+`evaluationRiskEngine.test.ts`, `paperExecution.test.ts`, and — crucially — `pnlMath.audit.test.ts`
+from an earlier dedicated P&L audit (Fase 1.A2) this phase deliberately did not re-litigate.
+
+- **Same-candle SL/TP policy, now explicit**: when one H1 candle's high/low would satisfy BOTH the
+  stop and the target, `checkStopsAndTargets` (`paperExecution.ts`) ALWAYS resolves it as
+  `STOP_LOSS` — the stop branch is checked and returned first, unconditionally, regardless of how
+  far each level was breached. This was already the code's real behavior; it just wasn't stated
+  anywhere as a deliberate policy before. A genuine intrabar TP-vs-SL order can't be recovered from
+  OHLC alone, so this is the honest, pessimistic, order-blind choice — not changed, only documented
+  and tested (both LONG and SHORT).
+- **Fee convention, verified against the account ledger, not just re-asserted**: entry fee and exit
+  fee are each charged exactly once — entry fee debited from `ReplayPortfolio.cashBalance`
+  immediately at open, exit fee subtracted inside `trade.netPnl` at close. `ReplayTradeRecord.netPnl`
+  itself reflects `grossPnl − exitFee` only (by design, matching the SAME convention already audited
+  and tested in `pnlMath.audit.test.ts` for live paper trading, and present in `backtest.ts` too) —
+  the account's real total return DOES include both fees, reconciled exactly in the new audit tests.
+  This is a documented accounting convention, not a bug: changing what three independently-audited,
+  mutually-consistent engines already agree on was explicitly out of scope (spec section 23).
+- **`calculateReferencePnL()`**: a genuinely independent P&L function (imports nothing from
+  `replayPortfolio.ts`/`positionStateManager.ts`) validated against real `simulateFill()` output for
+  LONG/SHORT winners and losers, plus an R-multiple cross-check proving the metric is invariant to
+  Trade Gate size reduction.
+- **Position sizing across Risk Level 1/5/10**: `approvedNotional ≤ requestedNotional` and realized
+  $ risk ≤ configured risk hold at every level, tested explicitly (not just inferred from the
+  existing monotonicity tests).
+- **Exposure freshness**: `ReplayPortfolio.openNotional()`/`assetNotional()` are always live reads —
+  a second candidate evaluated in the same tick can never see a stale pre-open snapshot (verified,
+  not just read).
+- **Structural anti-lookahead check**: a test reads `historicalReplayEngine.ts`'s own source and
+  confirms, by regex, that every `barsByAsset.get(...)` call site is wrapped by `barsAsOf(...)` — the
+  sole per-tick market-data chokepoint. Zero violations found.
+- **10 manual reference scenarios** (LONG/SHORT × TP/SL, same-candle both-true, overnight position,
+  daily/total loss crossing, target crossing, reduced size) with the expected result computed
+  explicitly in the test, not inferred from the engine's own output.
+- **Evaluation is a post-hoc lens, not live enforcement — already documented in Fase 11, reconfirmed
+  here**: `benchmarkEvaluation.ts`'s own doc comment already states the replay simulates the FULL
+  requested period regardless of a would-be FAILED/TARGET_REACHED point; the sticky
+  FAILED/TARGET_REACHED state machine (`evaluateEvaluationAccount`) is what a live account would
+  enforce, tested here again explicitly (including unrealized P&L from an open position correctly
+  crossing a UTC day boundary via the equity curve).
+- **Replay vs paper trading**: the SAME fee/slippage convention is shared across all three engines
+  (replay, `backtest.ts`, live `positionStateManager.ts`) — verified by reading, not assumed.
+- **Result impact**: none. No bug was found that would change Fase 11's Breakout/Momentum/Mean
+  Reversion/Trend Following numbers, so nothing was re-run — per spec section 24, a fix is only
+  followed by a before/after re-run when it actually changes behavior.
+- **Replay Integrity / Audit panel** in `/strategy-lab` (shown once a run is loaded): dataset hash,
+  execution convention, same-candle policy, fee model, slippage model, sizing convention — a small
+  transparency addition, not a new screen, with a direct pointer to the test file that proves each claim.
+
 ### AI layer (spec #16, #17, #36)
 
 `AIAnalystOutput`/`AICriticOutput` are typed JSON, never free text — both the rule-based demo

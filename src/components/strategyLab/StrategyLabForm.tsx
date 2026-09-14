@@ -8,6 +8,7 @@ import { EquityCurveChart } from "@/components/charts/EquityCurveChart";
 import { DrawdownCurveChart } from "@/components/charts/DrawdownCurveChart";
 import { RegimeAnalysisSection } from "@/components/strategyLab/RegimeAnalysisPanel";
 import { HypothesisValidationSection } from "@/components/strategyLab/HypothesisValidationPanel";
+import { ReplayIntegrityPanel } from "@/components/strategyLab/ReplayIntegrityPanel";
 import { tDirection, tExitReason } from "@/lib/i18n";
 import type { TimeframeCode } from "@/lib/providers/types";
 import type { StrategyBenchmarkMetrics } from "@/lib/research/benchmarkMetrics";
@@ -43,6 +44,8 @@ interface BenchmarkRunView {
   endDate: string;
   evaluationProfileType: string;
   riskLevel: number;
+  datasetId?: string | null;
+  datasetHash?: string | null;
   status: "PENDING" | "RUNNING" | "DONE" | "FAILED";
   error: string | null;
   createdAt: string;
@@ -348,6 +351,8 @@ export function StrategyLabForm({ assetSymbols, strategies }: { assetSymbols: st
               Monte Carlo / bootstrap sobre múltiples trayectorias, no implementado en esta fase.
             </p>
           </Card>
+
+          <ReplayIntegrityPanel datasetHash={run.datasetHash} />
 
           <Card
             title="Comparison Table"
