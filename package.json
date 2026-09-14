@@ -26,6 +26,7 @@
     "market-data:import:file": "tsx scripts/import-historical-market-data-from-file.mjs",
     "market-data:import:batch": "tsx scripts/import-historical-market-data-batch.mjs",
     "market-data:coverage": "tsx scripts/check-market-data-coverage.mjs",
+    "market-data:resample": "tsx scripts/resample-market-data.mjs",
     "desktop:prepare": "node scripts/prepare-desktop.mjs",
     "desktop:dev": "electron .",
     "desktop:build:win": "npm run desktop:prepare && electron-builder --win --x64 --publish=never",
