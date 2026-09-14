@@ -307,6 +307,12 @@ export async function importHistoricalMarketDataFromFile(options: OfflineImportO
     skipped += valid.length - inRange.length;
 
     if (inRange.length > 0) {
+      // `inRange` is already globally sorted ascending (derived from `sorted`
+      // above, filter-preserves order) — first/last are just its ends, not a
+      // running min/max tracked per-row.
+      firstTimestamp = inRange[0].timestamp;
+      lastTimestamp = inRange[inRange.length - 1].timestamp;
+
       const rangeStartMs = inRange[0].timestamp.getTime();
       const rangeEndMs = inRange[inRange.length - 1].timestamp.getTime();
       const existingRows = await prisma.marketData.findMany({
@@ -315,42 +321,56 @@ export async function importHistoricalMarketDataFromFile(options: OfflineImportO
       });
       const existingByTs = new Map(existingRows.map((r) => [r.timestamp.getTime(), r]));
 
+      // Fase 16 — split into insert/update/unchanged BEFORE writing anything,
+      // so a first-time historical import (the common case, almost always
+      // 100% new rows) can go through batched `createMany()` calls instead
+      // of one individual `create()` round-trip per candle. Only rows that
+      // already exist with DIFFERENT values still go through individual
+      // `update()` calls (Prisma/SQLite has no batched-update-by-distinct-
+      // values primitive) — that path is expected to be rare (re-importing
+      // an already-correct range hits `duplicates`, not `toUpdate`).
+      const toInsert: OHLCVBar[] = [];
+      const toUpdate: OHLCVBar[] = [];
       for (const bar of inRange) {
-        const ts = bar.timestamp.getTime();
-        const existing = existingByTs.get(ts);
-        if (existing) {
-          const unchanged = existing.open === bar.open && existing.high === bar.high && existing.low === bar.low && existing.close === bar.close && existing.volume === bar.volume;
-          if (unchanged) {
-            duplicates++;
-          } else {
-            await prisma.marketData.update({
-              where: { assetId_timeframe_timestamp_source: { assetId: asset.id, timeframe: options.timeframe, timestamp: bar.timestamp, source } },
-              data: { open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume, isDemo: false, quality: 100 },
-            });
-            updated++;
-            anyRowWritten = true;
-          }
+        const existing = existingByTs.get(bar.timestamp.getTime());
+        if (!existing) {
+          toInsert.push(bar);
         } else {
-          await prisma.marketData.create({
-            data: {
-              assetId: asset.id,
-              timeframe: options.timeframe,
-              timestamp: bar.timestamp,
-              open: bar.open,
-              high: bar.high,
-              low: bar.low,
-              close: bar.close,
-              volume: bar.volume,
-              source,
-              isDemo: false,
-              quality: 100,
-            },
-          });
-          inserted++;
-          anyRowWritten = true;
+          const unchanged = existing.open === bar.open && existing.high === bar.high && existing.low === bar.low && existing.close === bar.close && existing.volume === bar.volume;
+          if (unchanged) duplicates++;
+          else toUpdate.push(bar);
         }
-        if (firstTimestamp === null || bar.timestamp < firstTimestamp) firstTimestamp = bar.timestamp;
-        if (lastTimestamp === null || bar.timestamp > lastTimestamp) lastTimestamp = bar.timestamp;
+      }
+
+      const INSERT_CHUNK_SIZE = 2000; // bounds any single query's row count regardless of how large the import is
+      for (let i = 0; i < toInsert.length; i += INSERT_CHUNK_SIZE) {
+        const chunk = toInsert.slice(i, i + INSERT_CHUNK_SIZE);
+        await prisma.marketData.createMany({
+          data: chunk.map((bar) => ({
+            assetId: asset.id,
+            timeframe: options.timeframe,
+            timestamp: bar.timestamp,
+            open: bar.open,
+            high: bar.high,
+            low: bar.low,
+            close: bar.close,
+            volume: bar.volume,
+            source,
+            isDemo: false,
+            quality: 100,
+          })),
+        });
+      }
+      inserted += toInsert.length;
+      if (toInsert.length > 0) anyRowWritten = true;
+
+      for (const bar of toUpdate) {
+        await prisma.marketData.update({
+          where: { assetId_timeframe_timestamp_source: { assetId: asset.id, timeframe: options.timeframe, timestamp: bar.timestamp, source } },
+          data: { open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume, isDemo: false, quality: 100 },
+        });
+        updated++;
+        anyRowWritten = true;
       }
     }
   } catch (err) {
@@ -370,6 +390,14 @@ export async function importHistoricalMarketDataFromFile(options: OfflineImportO
       rowsInvalid: invalid,
       status,
       error: caughtError,
+      // Fase 16 — provenance (spec section 11): when the caller didn't pass
+      // explicit --start/--end, the row was created with placeholder bounds
+      // (epoch 0 / "now") that say nothing about what was actually in the
+      // file. Once the real content range is known, replace those
+      // placeholders with the ACTUAL first/last imported timestamp so this
+      // log row is useful for reconstructing which files/ranges built a
+      // dataset later — never touches rows already written by a PRIOR run.
+      ...(firstTimestamp && lastTimestamp ? { rangeStart: firstTimestamp, rangeEnd: lastTimestamp } : {}),
     },
   });
 

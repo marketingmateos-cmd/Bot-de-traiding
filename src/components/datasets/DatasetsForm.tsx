@@ -20,6 +20,21 @@ interface DatasetView {
   quality: number;
   datasetHash: string;
   createdAt: string;
+  minPrice: number | null;
+  maxPrice: number | null;
+  minVolume: number | null;
+  maxVolume: number | null;
+}
+
+interface ProvenanceEntry {
+  importLogId: string;
+  source: string;
+  rangeStart: string;
+  rangeEnd: string;
+  rowsInserted: number;
+  rowsUpdated: number;
+  status: string;
+  importedAt: string;
 }
 
 const TIMEFRAMES: TimeframeCode[] = ["M15", "H1", "H4", "D1"];
@@ -28,17 +43,125 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
-function ManifestView({ dataset, onClose }: { dataset: DatasetView; onClose: () => void }) {
+function fmtNum(n: number | null): string {
+  return n === null ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+/** Fase 16 — Quality Report (spec section 10) + manifest + provenance (section 11), fetched together from GET /api/datasets/[id]. Descriptive only — never used to select a dataset or strategy. */
+function DatasetDetailView({ dataset, onClose }: { dataset: DatasetView; onClose: () => void }) {
   const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
+  const [provenance, setProvenance] = useState<ProvenanceEntry[] | null>(null);
   useEffect(() => {
     fetch(`/api/datasets/${dataset.id}`)
       .then((r) => r.json())
-      .then((json) => json.ok && setManifest(json.manifest));
+      .then((json) => {
+        if (!json.ok) return;
+        setManifest(json.manifest);
+        setProvenance(json.provenance);
+      });
   }, [dataset.id]);
 
   return (
-    <Card title={`Manifest — ${dataset.symbol} ${dataset.timeframe}`} actions={<button onClick={onClose} className="text-xs text-muted hover:text-slate-200">cerrar</button>}>
-      <pre className="overflow-x-auto rounded bg-black/30 p-3 text-[11px] text-slate-200">{manifest ? JSON.stringify(manifest, null, 2) : "Cargando…"}</pre>
+    <Card title={`Quality Report — ${dataset.symbol} ${dataset.timeframe}`} actions={<button onClick={onClose} className="text-xs text-muted hover:text-slate-200">cerrar</button>}>
+      <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+        <div>
+          <div className="text-muted">Expected interval</div>
+          <div className="mt-1 font-mono">{dataset.timeframe}</div>
+        </div>
+        <div>
+          <div className="text-muted">Rows</div>
+          <div className="mt-1 font-mono">{dataset.rowCount}</div>
+        </div>
+        <div>
+          <div className="text-muted">Coverage</div>
+          <div className="mt-1 font-mono">{dataset.coveragePct.toFixed(2)}%</div>
+        </div>
+        <div>
+          <div className="text-muted">Quality</div>
+          <div className="mt-1 font-mono">{dataset.quality}</div>
+        </div>
+        <div>
+          <div className="text-muted">Gaps</div>
+          <div className="mt-1 font-mono">{dataset.gapCount}</div>
+        </div>
+        <div>
+          <div className="text-muted">Duplicates</div>
+          <div className="mt-1 font-mono">{dataset.duplicateCount}</div>
+        </div>
+        <div>
+          <div className="text-muted">isDemo</div>
+          <div className="mt-1 font-mono">{String(dataset.isDemo)}</div>
+        </div>
+        <div>
+          <div className="text-muted">Source</div>
+          <div className="mt-1 font-mono">{dataset.source}</div>
+        </div>
+        <div>
+          <div className="text-muted">Min / Max price</div>
+          <div className="mt-1 font-mono">
+            {fmtNum(dataset.minPrice)} / {fmtNum(dataset.maxPrice)}
+          </div>
+        </div>
+        <div>
+          <div className="text-muted">Min / Max volume</div>
+          <div className="mt-1 font-mono">
+            {fmtNum(dataset.minVolume)} / {fmtNum(dataset.maxVolume)}
+          </div>
+        </div>
+        <div>
+          <div className="text-muted">First timestamp</div>
+          <div className="mt-1 font-mono text-[11px]">{fmtDate(dataset.startDate)}</div>
+        </div>
+        <div>
+          <div className="text-muted">Last timestamp</div>
+          <div className="mt-1 font-mono text-[11px]">{fmtDate(dataset.endDate)}</div>
+        </div>
+      </div>
+      <p className="mt-2 text-[10px] text-muted">
+        min/max price/volume descriptivos únicamente — nunca usados para seleccionar un dataset o una estrategia. minPrice/maxPrice/minVolume/maxVolume
+        aparecen como &quot;—&quot; para datasets registrados antes de Fase 16 (nunca backfilled retroactivamente).
+      </p>
+
+      {provenance && provenance.length > 0 && (
+        <div className="mt-4">
+          <div className="mb-1 text-xs font-medium text-slate-200">Provenance — import log(s) que construyeron este rango</div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-xs">
+              <thead className="text-muted">
+                <tr>
+                  <th className="py-1 pr-3">Import log</th>
+                  <th className="py-1 pr-3">Range</th>
+                  <th className="py-1 pr-3">Inserted</th>
+                  <th className="py-1 pr-3">Updated</th>
+                  <th className="py-1 pr-3">Status</th>
+                  <th className="py-1 pr-3">Imported at</th>
+                </tr>
+              </thead>
+              <tbody>
+                {provenance.map((p) => (
+                  <tr key={p.importLogId} className="border-t border-bg-border">
+                    <td className="py-1.5 pr-3 font-mono text-[10px] text-muted">{p.importLogId}</td>
+                    <td className="py-1.5 pr-3 font-mono text-[11px]">
+                      {fmtDate(p.rangeStart)} → {fmtDate(p.rangeEnd)}
+                    </td>
+                    <td className="py-1.5 pr-3 font-mono">{p.rowsInserted}</td>
+                    <td className="py-1.5 pr-3 font-mono">{p.rowsUpdated}</td>
+                    <td className="py-1.5 pr-3">
+                      <Badge tone={p.status === "DONE" ? "success" : "danger"}>{p.status}</Badge>
+                    </td>
+                    <td className="py-1.5 pr-3 font-mono text-[11px] text-muted">{fmtDate(p.importedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <details className="mt-4">
+        <summary className="cursor-pointer text-xs font-medium text-slate-200">Manifest (JSON)</summary>
+        <pre className="mt-2 overflow-x-auto rounded bg-black/30 p-3 text-[11px] text-slate-200">{manifest ? JSON.stringify(manifest, null, 2) : "Cargando…"}</pre>
+      </details>
     </Card>
   );
 }
@@ -53,7 +176,7 @@ export function DatasetsForm({ assetSymbols }: { assetSymbols: string[] }) {
   const [datasets, setDatasets] = useState<DatasetView[]>([]);
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [manifestFor, setManifestFor] = useState<DatasetView | null>(null);
+  const [detailFor, setDetailFor] = useState<DatasetView | null>(null);
 
   async function refresh() {
     const res = await fetch("/api/datasets");
@@ -176,8 +299,8 @@ export function DatasetsForm({ assetSymbols }: { assetSymbols: string[] }) {
                     </td>
                     <td className="py-1.5 pr-3 font-mono text-[11px] text-muted">{fmtDate(d.createdAt)}</td>
                     <td className="py-1.5 pr-3">
-                      <button onClick={() => setManifestFor(d)} className="text-accent hover:underline">
-                        manifest
+                      <button onClick={() => setDetailFor(d)} className="text-accent hover:underline">
+                        quality report
                       </button>
                     </td>
                   </tr>
@@ -188,7 +311,7 @@ export function DatasetsForm({ assetSymbols }: { assetSymbols: string[] }) {
         )}
       </Card>
 
-      {manifestFor && <ManifestView dataset={manifestFor} onClose={() => setManifestFor(null)} />}
+      {detailFor && <DatasetDetailView dataset={detailFor} onClose={() => setDetailFor(null)} />}
     </div>
   );
 }

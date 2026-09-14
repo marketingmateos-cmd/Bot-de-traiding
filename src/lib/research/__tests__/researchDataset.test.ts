@@ -168,6 +168,10 @@ describe("buildDatasetManifest — spec section 7", () => {
       quality: 100,
       datasetHash: "abc123",
       createdAt: now,
+      minPrice: 99,
+      maxPrice: 105,
+      minVolume: 10,
+      maxVolume: 50,
     });
     expect(manifest).toEqual({
       id: "ds1",
@@ -175,6 +179,10 @@ describe("buildDatasetManifest — spec section 7", () => {
       timeframe: "H1",
       start: "2026-01-01T00:00:00.000Z",
       end: "2026-01-01T05:00:00.000Z",
+      minPrice: 99,
+      maxPrice: 105,
+      minVolume: 10,
+      maxVolume: 50,
       rowCount: 6,
       source: "binance_csv",
       isDemo: false,
@@ -185,5 +193,59 @@ describe("buildDatasetManifest — spec section 7", () => {
       datasetHash: "abc123",
       createdAt: "2026-01-02T00:00:00.000Z",
     });
+  });
+});
+
+describe("registerResearchDataset — símbolo/timeframe diferentes se separan correctamente (spec section 14 item 11)", () => {
+  const startMs = Date.UTC(2021, 0, 1);
+  const stepMs = 3_600_000;
+  const source = "fase16_separation_test";
+  const range = { startDate: new Date(startMs), endDate: new Date(startMs + 4 * stepMs) };
+  let btcId: string;
+  let ethId: string;
+
+  beforeAll(async () => {
+    const btc = await prisma.asset.upsert({ where: { symbol: "BTC" }, update: {}, create: { symbol: "BTC", name: "Bitcoin" } });
+    const eth = await prisma.asset.upsert({ where: { symbol: "ETH" }, update: {}, create: { symbol: "ETH", name: "Ethereum" } });
+    btcId = btc.id;
+    ethId = eth.id;
+
+    // Same timestamps, same timeframe, DIFFERENT symbols — deliberately
+    // different close prices so a symbol mix-up would be caught by a hash mismatch.
+    for (let i = 0; i <= 4; i++) {
+      await prisma.marketData.create({ data: { assetId: btcId, timeframe: "H1", timestamp: new Date(startMs + i * stepMs), open: 100, high: 101 + i, low: 99, close: 100 + i, volume: 10, source, isDemo: false, quality: 100 } });
+      await prisma.marketData.create({ data: { assetId: ethId, timeframe: "H1", timestamp: new Date(startMs + i * stepMs), open: 200, high: 201 + i, low: 199, close: 200 + i, volume: 20, source, isDemo: false, quality: 100 } });
+    }
+    // Same symbol (BTC), same range, DIFFERENT timeframe (H4) — coarser step, fewer aligned candles.
+    for (let i = 0; i <= 1; i++) {
+      await prisma.marketData.create({ data: { assetId: btcId, timeframe: "H4", timestamp: new Date(startMs + i * 4 * stepMs), open: 300, high: 301 + i, low: 299, close: 300 + i, volume: 30, source, isDemo: false, quality: 100 } });
+    }
+  });
+
+  afterAll(async () => {
+    await prisma.marketData.deleteMany({ where: { source, timeframe: { in: ["H1", "H4"] } } });
+    await prisma.researchDataset.deleteMany({ where: { source, symbol: { in: ["BTC", "ETH"] } } });
+  });
+
+  it("two different symbols at the identical timeframe/range never cross-contaminate rowCount or hash", async () => {
+    const btcDs = await registerResearchDataset({ symbol: "BTC", timeframe: "H1", ...range, source });
+    const ethDs = await registerResearchDataset({ symbol: "ETH", timeframe: "H1", ...range, source });
+
+    expect(btcDs.symbol).toBe("BTC");
+    expect(ethDs.symbol).toBe("ETH");
+    expect(btcDs.rowCount).toBe(5);
+    expect(ethDs.rowCount).toBe(5); // ETH rows counted independently of BTC's, not merged/doubled
+    expect(btcDs.datasetHash).not.toBe(ethDs.datasetHash); // different close prices per symbol -> different hash
+  });
+
+  it("the same symbol at two different timeframes over an overlapping range is registered as two distinct datasets", async () => {
+    const h1Ds = await registerResearchDataset({ symbol: "BTC", timeframe: "H1", ...range, source });
+    const h4Ds = await registerResearchDataset({ symbol: "BTC", timeframe: "H4", startDate: range.startDate, endDate: new Date(startMs + 4 * stepMs), source });
+
+    expect(h1Ds.id).not.toBe(h4Ds.id);
+    expect(h1Ds.timeframe).toBe("H1");
+    expect(h4Ds.timeframe).toBe("H4");
+    expect(h1Ds.rowCount).toBe(5); // the 5 H1 candles, never picking up the H4 rows
+    expect(h4Ds.rowCount).toBe(2); // only the 2 H4 candles, never picking up the H1 rows
   });
 });

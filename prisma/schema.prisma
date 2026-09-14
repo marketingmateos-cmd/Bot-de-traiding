@@ -147,6 +147,15 @@ model ResearchDataset {
   quality        Int // 0-100, mean of the underlying MarketData.quality rows
   datasetHash    String // sha256 over "timestamp|open|high|low|close|volume" per row, chronological order — see computeDatasetHash()'s own doc comment for the exact algorithm
   createdAt      DateTime @default(now())
+  // Fase 16 — descriptive-only quality-report fields (spec section 10):
+  // NEVER used to select/filter/prefer a dataset or a strategy, purely
+  // informational for a human reading the manifest. Computed once at
+  // registration from the SAME already-fetched rows (no extra query, no
+  // second copy of the OHLC series itself).
+  minPrice       Float?
+  maxPrice       Float?
+  minVolume      Float?
+  maxVolume      Float?
 
   // Registering the identical (symbol, timeframe, start, end, source) range twice is
   // idempotent — returns the existing row rather than creating a duplicate.

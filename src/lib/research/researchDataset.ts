@@ -39,6 +39,11 @@ export interface ResearchDatasetView {
   quality: number;
   datasetHash: string;
   createdAt: Date;
+  /** Fase 16 — descriptive-only (spec section 10): never used to select/filter a dataset or strategy. Null for any dataset registered before this field existed — never backfilled retroactively (spec section 15/13: existing datasets are never modified). */
+  minPrice: number | null;
+  maxPrice: number | null;
+  minVolume: number | null;
+  maxVolume: number | null;
 }
 
 export class DatasetValidationError extends Error {}
@@ -149,6 +154,13 @@ export async function registerResearchDataset(request: DatasetRegistrationReques
   const gapCount = coverage.gaps.length;
   const coveragePct = coverage.coveragePct ?? 0;
 
+  // Fase 16 — quality-report extras (spec section 10), computed from the SAME
+  // `rows` already fetched above — no second query, no second copy of the series.
+  const minPrice = Math.min(...rows.map((r) => r.low));
+  const maxPrice = Math.max(...rows.map((r) => r.high));
+  const minVolume = Math.min(...rows.map((r) => r.volume));
+  const maxVolume = Math.max(...rows.map((r) => r.volume));
+
   return prisma.researchDataset.create({
     data: {
       symbol: request.symbol,
@@ -163,6 +175,10 @@ export async function registerResearchDataset(request: DatasetRegistrationReques
       duplicateCount,
       quality,
       datasetHash,
+      minPrice,
+      maxPrice,
+      minVolume,
+      maxVolume,
     },
   });
 }
@@ -182,6 +198,10 @@ export interface DatasetManifest {
   quality: number;
   datasetHash: string;
   createdAt: string;
+  minPrice: number | null;
+  maxPrice: number | null;
+  minVolume: number | null;
+  maxVolume: number | null;
 }
 
 /** Spec section 7 — the manifest is just this row's own identity, in a stable, self-describing shape (never re-derived from MarketData at read time — the ResearchDataset row IS the frozen snapshot). */
@@ -201,5 +221,62 @@ export function buildDatasetManifest(dataset: ResearchDatasetView): DatasetManif
     quality: dataset.quality,
     datasetHash: dataset.datasetHash,
     createdAt: dataset.createdAt.toISOString(),
+    minPrice: dataset.minPrice,
+    maxPrice: dataset.maxPrice,
+    minVolume: dataset.minVolume,
+    maxVolume: dataset.maxVolume,
   };
+}
+
+export interface DatasetProvenanceEntry {
+  importLogId: string;
+  source: string;
+  rangeStart: string;
+  rangeEnd: string;
+  rowsInserted: number;
+  rowsUpdated: number;
+  status: string;
+  importedAt: string;
+}
+
+/**
+ * Fase 16 spec section 11 — "si un dataset se construye a partir de varios
+ * archivos mensuales, documentar todos los componentes." Computed at READ
+ * time (never stored on the `ResearchDataset` row itself — imports for the
+ * same symbol/timeframe/source can keep happening after a dataset is
+ * registered, so a frozen snapshot list would go stale): every
+ * `MarketDataImportLog` row for this dataset's (symbol→assetId, timeframe,
+ * source) whose OWN actual content range (see the Fase 16 fix in
+ * `offlineImporter.ts`: `rangeStart`/`rangeEnd` now reflect the real
+ * imported range, not a placeholder) overlaps the dataset's range.
+ * Import-log rows from BEFORE that fix (placeholder epoch-0/"now" bounds)
+ * may still appear or be missed here — an honest limitation of historical
+ * log data this function cannot retroactively repair, documented in the
+ * Fase 16 report rather than silently patched.
+ */
+export async function buildDatasetProvenance(dataset: ResearchDatasetView): Promise<DatasetProvenanceEntry[]> {
+  const asset = await prisma.asset.findUnique({ where: { symbol: dataset.symbol } });
+  if (!asset) return [];
+
+  const logs = await prisma.marketDataImportLog.findMany({
+    where: {
+      assetId: asset.id,
+      timeframe: dataset.timeframe,
+      source: dataset.source,
+      rangeStart: { lte: dataset.endDate },
+      rangeEnd: { gte: dataset.startDate },
+    },
+    orderBy: { importedAt: "asc" },
+  });
+
+  return logs.map((log) => ({
+    importLogId: log.id,
+    source: log.source,
+    rangeStart: log.rangeStart.toISOString(),
+    rangeEnd: log.rangeEnd.toISOString(),
+    rowsInserted: log.rowsInserted,
+    rowsUpdated: log.rowsUpdated,
+    status: log.status,
+    importedAt: log.importedAt.toISOString(),
+  }));
 }

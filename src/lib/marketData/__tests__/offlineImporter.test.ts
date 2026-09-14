@@ -507,3 +507,54 @@ describe("Fase 9.1 test #14 (prueba end-to-end) — CSV -> importer -> MarketDat
     expect(run.results[0].metrics).not.toBeNull(); // real metrics were computed, not skipped
   });
 });
+
+describe("Fase 16 test — importación incremental es determinista (spec section 14 item 12)", () => {
+  // Mirrors the spec's own example literally: import three disjoint
+  // chronological chunks ("enero", "febrero", "marzo") one after another,
+  // then re-import the middle one — it must be reported as already
+  // present (duplicates), never inserted a second time, and the final
+  // row set must be identical regardless of how many times a chunk was
+  // (re-)imported.
+  const startMs = Date.UTC(2009, 0, 1);
+  const stepMs = 3_600_000;
+  const source = "binance_csv_incremental_test";
+  afterAll(() => cleanupRange("BTC", "H1", source, startMs, startMs + 8 * stepMs));
+
+  function chunk(name: string, offsetHours: number): string {
+    return writeCsv(name, [
+      [new Date(startMs + offsetHours * stepMs).toISOString(), "100", "101", "99", "100.5", "10"],
+      [new Date(startMs + (offsetHours + 1) * stepMs).toISOString(), "101", "102", "100", "101.5", "10"],
+      [new Date(startMs + (offsetHours + 2) * stepMs).toISOString(), "102", "103", "101", "102.5", "10"],
+    ]);
+  }
+
+  it("importing enero, febrero, marzo sequentially then re-importing febrero never duplicates data", async () => {
+    const enero = await importHistoricalMarketDataFromFile({ filePath: chunk("enero", 0), exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(enero.inserted).toBe(3);
+    expect(enero.duplicates).toBe(0);
+
+    const febrero = await importHistoricalMarketDataFromFile({ filePath: chunk("febrero", 3), exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(febrero.inserted).toBe(3);
+    expect(febrero.duplicates).toBe(0);
+
+    const marzo = await importHistoricalMarketDataFromFile({ filePath: chunk("marzo", 6), exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(marzo.inserted).toBe(3);
+    expect(marzo.duplicates).toBe(0);
+
+    const asset = await prisma.asset.findUniqueOrThrow({ where: { symbol: "BTC" } });
+    const afterThree = await prisma.marketData.count({ where: { assetId: asset.id, timeframe: "H1", source } });
+    expect(afterThree).toBe(9);
+
+    // Re-import febrero: must report it already exists (duplicates), never insert it again.
+    const febreroAgain = await importHistoricalMarketDataFromFile({ filePath: chunk("febrero-again", 3), exchangeSymbol: "BTCUSDT", timeframe: "H1", source });
+    expect(febreroAgain.inserted).toBe(0);
+    expect(febreroAgain.duplicates).toBe(3);
+
+    const afterReimport = await prisma.marketData.count({ where: { assetId: asset.id, timeframe: "H1", source } });
+    expect(afterReimport).toBe(9); // unchanged — no duplicate rows created
+
+    const coverage = await computeMarketDataCoverage("BTC", "H1", source);
+    expect(coverage.rowCount).toBe(9);
+    expect(coverage.gaps).toHaveLength(0); // the three chunks are contiguous — 0..8
+  });
+});
