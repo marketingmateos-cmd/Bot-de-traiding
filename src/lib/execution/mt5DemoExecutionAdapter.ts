@@ -1,12 +1,15 @@
 import type { Mt5ClientLike } from "./mt5Client";
 import { verifyAccountIsDemo as verifyDemoPure, LIVE_ACCOUNT_BLOCKED_MESSAGE } from "./demoAccountGuard";
 import { redactSecret } from "./secretRedaction";
+import { env } from "@/lib/env";
 import { accountInfoToSnapshot, getConnectionRow, markDisconnected, markError, saveConnectionSnapshot } from "./mt5ConnectionStore";
 import { hasAlreadyExecuted, buildIdempotencyKey, type SignalIdentity } from "./duplicateOrderGuard";
 import { recordExecutionEvent } from "./executionEventLog";
 import type {
   Mt5AccountInfo,
   Mt5Credentials,
+  Mt5HistoricalBar,
+  Mt5HistoricalTimeframe,
   Mt5Position,
   Mt5Quote,
   Mt5SymbolSpec,
@@ -37,6 +40,18 @@ import type {
  * connection on every call rather than trusting a cached flag — a
  * disconnect-and-reconnect-to-a-different-account can never inherit a
  * stale `verifiedDemo: true`.
+ *
+ * READ vs EXECUTION (MT5 Data Connector phase, explicit per spec section 4):
+ * every method below except `placeOrder` is READ/DATA — connect, disconnect,
+ * verify demo, account info, symbols, symbol spec, quote, open positions,
+ * historical bars. None of them can change account state, none of them
+ * require the execution Safety Switch, and the MT5 Data Connector's own
+ * ingestion path (src/lib/marketData/mt5HistoricalIngestion.ts) calls
+ * ONLY these — never `placeOrder`, enforced by a structural test that greps
+ * that file's source for "placeOrder"/"orderSend". `placeOrder` is the one
+ * EXECUTION method: gated by the DB Safety Switch AND the
+ * ENABLE_DEMO_EXECUTION env var, both re-checked on every call, and it
+ * remains fully unreachable from anywhere in this phase's own code.
  */
 export class MT5DemoExecutionAdapter implements TradingExecutionAdapter {
   readonly id = "mt5-demo";
@@ -131,6 +146,10 @@ export class MT5DemoExecutionAdapter implements TradingExecutionAdapter {
     return this.client.positions();
   }
 
+  async getHistoricalBars(symbol: string, timeframe: Mt5HistoricalTimeframe, start: Date, end: Date): Promise<Mt5HistoricalBar[]> {
+    return this.client.historicalRates(symbol, timeframe, start, end);
+  }
+
   /**
    * Spec section 8/16 — the gate every order must clear, re-checked live
    * against the DB every single call (never a value cached on `this`):
@@ -149,6 +168,15 @@ export class MT5DemoExecutionAdapter implements TradingExecutionAdapter {
   async placeOrder(request: PlaceOrderRequest): Promise<PlaceOrderResult> {
     if (await hasAlreadyExecuted(request.idempotencyKey)) {
       return { status: "REJECTED", ticket: null, filledPrice: null, executionLatencyMs: 0, rejectionReason: "Señal duplicada: ya existe una ejecución registrada para este idempotencyKey." };
+    }
+
+    // MT5 Data Connector phase — defense in depth, checked directly here
+    // rather than trusted transitively through canEnableMt5Execution(): even
+    // if `row.executionEnabled` were somehow true (stale data, a bug, a
+    // direct DB edit), an unset/false ENABLE_DEMO_EXECUTION still refuses
+    // the order. Never bypassable — there is no other path to orderSend().
+    if (!env.isDemoExecutionEnabledByEnv) {
+      return this.rejectAndLog(request, "Demo execution is disabled");
     }
 
     const row = await getConnectionRow();

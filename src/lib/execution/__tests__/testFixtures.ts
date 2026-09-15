@@ -28,6 +28,7 @@ export function makeFakeMt5Client(overrides: Partial<Mt5ClientLike> = {}): Mt5Cl
     symbolInfo: async () => null,
     quote: async () => null,
     positions: async () => [],
+    historicalRates: async () => [],
     orderSend: async (): Promise<PlaceOrderResult> => ({ status: "FILLED", ticket: "999", filledPrice: 1.1, executionLatencyMs: 5, rejectionReason: null }),
     ...overrides,
   };

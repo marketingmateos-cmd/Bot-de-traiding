@@ -16,6 +16,22 @@ async function cleanupExecutionEvents(symbol: string) {
   await prisma.executionEvent.deleteMany({ where: { symbol } });
 }
 
+// MT5 Data Connector phase added an additional env-level kill switch
+// (ENABLE_DEMO_EXECUTION) on top of everything these Fase MT5.1/2 tests
+// already exercise. Before that phase, there was no env gate at all —
+// equivalent to always-on — so this file opts every test into that
+// equivalent state, and adds its OWN dedicated tests (below) for the
+// env-gate-specifically-off behavior. Restored after every test so no
+// state leaks into other test files.
+const ORIGINAL_ENABLE_DEMO_EXECUTION = process.env.ENABLE_DEMO_EXECUTION;
+beforeEach(() => {
+  process.env.ENABLE_DEMO_EXECUTION = "true";
+});
+afterEach(() => {
+  if (ORIGINAL_ENABLE_DEMO_EXECUTION === undefined) delete process.env.ENABLE_DEMO_EXECUTION;
+  else process.env.ENABLE_DEMO_EXECUTION = ORIGINAL_ENABLE_DEMO_EXECUTION;
+});
+
 beforeEach(resetConnectionRow);
 afterEach(resetConnectionRow);
 
@@ -269,6 +285,89 @@ describe("Fase MT5.1, spec section 23 — AI is not authority over this gate", (
     expect(result.status).toBe("REJECTED");
     expect(result.rejectionReason).toBe(LIVE_ACCOUNT_BLOCKED_MESSAGE);
     await cleanupExecutionEvents("EURUSD_AI_TEST");
+  });
+});
+
+describe("MT5 Data Connector — getHistoricalBars() (READ, never touches execution state)", () => {
+  it("delegates straight to the client and returns bars as-is, ascending", async () => {
+    const bars = [
+      { timestamp: new Date("2024-01-01T00:00:00.000Z"), open: 1.1, high: 1.12, low: 1.09, close: 1.11, volume: 100, tickVolume: 100, spread: 2, realVolume: 0 },
+      { timestamp: new Date("2024-01-01T01:00:00.000Z"), open: 1.11, high: 1.13, low: 1.1, close: 1.12, volume: 120, tickVolume: 120, spread: 2, realVolume: 0 },
+    ];
+    const adapter = new MT5DemoExecutionAdapter(makeFakeMt5Client({ historicalRates: async () => bars }));
+    const result = await adapter.getHistoricalBars("EURUSD", "H1", new Date("2024-01-01T00:00:00.000Z"), new Date("2024-01-01T02:00:00.000Z"));
+    expect(result).toEqual(bars);
+  });
+
+  it("does not require CONNECTED/verifiedDemo/executionEnabled state — a pure passthrough read, unlike placeOrder", async () => {
+    // No connect() call at all — the fake client still answers, proving this method never consults MT5DemoConnection.
+    const adapter = new MT5DemoExecutionAdapter(makeFakeMt5Client({ historicalRates: async () => [] }));
+    const result = await adapter.getHistoricalBars("EURUSD", "H1", new Date(), new Date());
+    expect(result).toEqual([]);
+  });
+
+  it("the default createUnavailableMt5Client() reports historical bars honestly as empty, never fabricated", async () => {
+    const adapter = new MT5DemoExecutionAdapter(createUnavailableMt5Client());
+    const result = await adapter.getHistoricalBars("EURUSD", "H1", new Date(), new Date());
+    expect(result).toEqual([]);
+  });
+});
+
+describe("MT5 Data Connector — ENABLE_DEMO_EXECUTION env kill switch (spec section 3)", () => {
+  const ORIGINAL = process.env.ENABLE_DEMO_EXECUTION;
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.ENABLE_DEMO_EXECUTION;
+    else process.env.ENABLE_DEMO_EXECUTION = ORIGINAL;
+  });
+
+  it("false (unset) => execution impossible even when connected, verified demo, AND the DB Safety Switch is on", async () => {
+    delete process.env.ENABLE_DEMO_EXECUTION;
+    const adapter = new MT5DemoExecutionAdapter(makeFakeMt5Client());
+    await adapter.connect({ login: "1234567", password: TEST_SECRET_PASSWORD, server: "TestBroker-Demo" });
+    await setExecutionEnabled(true);
+
+    const result = await adapter.placeOrder({ symbol: "EURUSD_ENVGATE_TEST", side: "BUY", volume: 0.1, stopLoss: 1.05, takeProfit: 1.15, idempotencyKey: "env-gate-off-test" });
+    expect(result.status).toBe("REJECTED");
+    expect(result.rejectionReason).toBe("Demo execution is disabled");
+    await cleanupExecutionEvents("EURUSD_ENVGATE_TEST");
+  });
+
+  it("any value other than the literal 'true' is treated as false", async () => {
+    process.env.ENABLE_DEMO_EXECUTION = "1";
+    const adapter = new MT5DemoExecutionAdapter(makeFakeMt5Client());
+    await adapter.connect({ login: "1234567", password: TEST_SECRET_PASSWORD, server: "TestBroker-Demo" });
+    await setExecutionEnabled(true);
+
+    const result = await adapter.placeOrder({ symbol: "EURUSD_ENVGATE_TEST2", side: "BUY", volume: 0.1, stopLoss: 1.05, takeProfit: 1.15, idempotencyKey: "env-gate-truthy-string-test" });
+    expect(result.status).toBe("REJECTED");
+    expect(result.rejectionReason).toBe("Demo execution is disabled");
+    await cleanupExecutionEvents("EURUSD_ENVGATE_TEST2");
+  });
+
+  it("false at the env level ALSO blocks canEnableMt5Execution from ever setting the DB flag to true in the first place", async () => {
+    delete process.env.ENABLE_DEMO_EXECUTION;
+    const result = await canEnableMt5Execution({ connectionStatus: "CONNECTED", verifiedDemo: true });
+    expect(result.allowed).toBe(false);
+    expect(result.reasons.some((r) => r.includes("ENABLE_DEMO_EXECUTION"))).toBe(true);
+  });
+
+  it("true (both env AND DB flag) is required together — env true alone, with the DB flag still off, is still refused", async () => {
+    process.env.ENABLE_DEMO_EXECUTION = "true";
+    const adapter = new MT5DemoExecutionAdapter(makeFakeMt5Client());
+    await adapter.connect({ login: "1234567", password: TEST_SECRET_PASSWORD, server: "TestBroker-Demo" });
+    // deliberately never calling setExecutionEnabled(true)
+
+    const result = await adapter.placeOrder({ symbol: "EURUSD_ENVGATE_TEST3", side: "BUY", volume: 0.1, stopLoss: 1.05, takeProfit: 1.15, idempotencyKey: "env-true-db-false-test" });
+    expect(result.status).toBe("REJECTED");
+    expect(result.rejectionReason).toMatch(/Safety Switch OFF/);
+    await cleanupExecutionEvents("EURUSD_ENVGATE_TEST3");
+  });
+
+  it("no execution fallback: there is no other exported function anywhere in src/lib/execution/ that calls client.orderSend besides MT5DemoExecutionAdapter.placeOrder", async () => {
+    const { execSync } = await import("node:child_process");
+    const output = execSync('grep -rn "\\.orderSend(" src/lib/execution/*.ts || true', { cwd: process.cwd() }).toString().trim();
+    const lines = output.split("\n").filter(Boolean);
+    expect(lines.every((l) => l.includes("mt5DemoExecutionAdapter.ts"))).toBe(true);
   });
 });
 

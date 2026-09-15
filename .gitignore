@@ -53,3 +53,7 @@ prisma/*.db-journal
 
 # generated at build time for the Vercel deploy — see scripts/generate-postgres-schema.mjs
 /prisma/schema.postgres.prisma
+
+# python (MT5 data connector)
+__pycache__/
+*.pyc

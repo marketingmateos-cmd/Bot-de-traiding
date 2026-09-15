@@ -19,6 +19,26 @@ export const env = {
     | "BALANCED"
     | "AGGRESSIVE"
     | "CUSTOM",
+  /**
+   * MT5 DEMO data connector — the environment-level execution kill switch
+   * (not a secret, safe in this shared object). Defaults to false whenever
+   * unset, missing, or set to anything other than the literal string
+   * "true" — there is no way to enable it by omission. This is an
+   * ADDITIONAL, independent precondition on top of the existing DB-backed
+   * `MT5DemoConnection.executionEnabled` Safety Switch
+   * (see demoAccountGuard.ts's canEnableMt5Execution) — both must agree
+   * before any order can ever be placed. It stays false for the entire
+   * MT5 Data Connector phase; nothing in this codebase ever sets it.
+   *
+   * A live getter (re-read on every access), unlike the plain-value fields
+   * above — a kill switch that only ever reflected `process.env` at module
+   * load time could never be exercised by a test that flips it per-case
+   * (and, more importantly, could disagree with the actual environment if
+   * that ever changed at runtime without a process restart).
+   */
+  get isDemoExecutionEnabledByEnv(): boolean {
+    return (process.env.ENABLE_DEMO_EXECUTION ?? "false").trim().toLowerCase() === "true";
+  },
 };
 
 export const SUPPORTED_ASSETS = [

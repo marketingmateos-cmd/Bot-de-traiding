@@ -57,11 +57,22 @@ async function resetAll() {
   setMt5ExecutionAdapterForTesting(null);
 }
 
+// MT5 Data Connector phase added an env-level kill switch
+// (ENABLE_DEMO_EXECUTION) on top of everything these MT5 Fase 2
+// orchestrator tests already exercise. Before that phase there was no env
+// gate at all — equivalent to always-on — so this file opts every test
+// into that equivalent state.
+const ORIGINAL_ENABLE_DEMO_EXECUTION = process.env.ENABLE_DEMO_EXECUTION;
 beforeEach(async () => {
+  process.env.ENABLE_DEMO_EXECUTION = "true";
   await resetAll();
   await setSymbolMapping(TEST_SYMBOL, MT5_SYMBOL);
 });
-afterEach(resetAll);
+afterEach(async () => {
+  if (ORIGINAL_ENABLE_DEMO_EXECUTION === undefined) delete process.env.ENABLE_DEMO_EXECUTION;
+  else process.env.ENABLE_DEMO_EXECUTION = ORIGINAL_ENABLE_DEMO_EXECUTION;
+  await resetAll();
+});
 
 function candidateSignal(overrides: Partial<Mt5CandidateSignal> = {}): Mt5CandidateSignal {
   return {

@@ -3,7 +3,8 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prisma } from "@/lib/db";
-import { importHistoricalMarketDataFromFile, CSV_HEADER } from "../offlineImporter";
+import { importHistoricalMarketDataFromFile, importHistoricalMarketDataForBars, CSV_HEADER } from "../offlineImporter";
+import type { OHLCVBar } from "@/lib/providers/types";
 import { computeMarketDataCoverage } from "../coverage";
 import { DbBackedHistoricalMarketDataProvider } from "../historicalMarketDataProvider";
 import { getHistoricalBars } from "@/lib/replay/historicalDataProvider";
@@ -556,5 +557,69 @@ describe("Fase 16 test — importación incremental es determinista (spec sectio
     const coverage = await computeMarketDataCoverage("BTC", "H1", source);
     expect(coverage.rowCount).toBe(9);
     expect(coverage.gaps).toHaveLength(0); // the three chunks are contiguous — 0..8
+  });
+});
+
+// ── MT5 Data Connector phase — importHistoricalMarketDataForBars ──────────
+// The SAME persistence core as importHistoricalMarketDataFromFile (shared
+// via persistOfflineBars), exercised through the non-Binance entry point:
+// bars already in memory, an internal symbol given directly (never through
+// resolveInternalSymbol/BINANCE_SYMBOL_MAPPINGS).
+
+function mt5Bar(iso: string, o: number, h: number, l: number, c: number, v: number): OHLCVBar {
+  return { timestamp: new Date(iso), open: o, high: h, low: l, close: c, volume: v };
+}
+
+describe("importHistoricalMarketDataForBars (MT5 Data Connector) — same core, no file/CSV involved", () => {
+  const SYMBOL = "EURUSD_OFFLINE_TEST";
+  const SOURCE = "mt5_demo_test";
+
+  afterAll(async () => {
+    await cleanupRange(SYMBOL, "H1", SOURCE, new Date("2019-01-01").getTime(), new Date("2019-01-03").getTime());
+  });
+
+  it("persists pre-parsed bars for an arbitrary (non-Binance) internal symbol, never touching resolveInternalSymbol", async () => {
+    const bars = [mt5Bar("2019-01-01T00:00:00.000Z", 1.1, 1.12, 1.09, 1.11, 100), mt5Bar("2019-01-01T01:00:00.000Z", 1.11, 1.13, 1.1, 1.12, 120)];
+    const result = await importHistoricalMarketDataForBars({ internalSymbol: SYMBOL, timeframe: "H1", source: SOURCE, bars });
+    expect(result.status).toBe("DONE");
+    expect(result.inserted).toBe(2);
+    expect(result.rowsRead).toBe(2);
+    expect(result.rowsValid).toBe(2);
+
+    const asset = await prisma.asset.findUniqueOrThrow({ where: { symbol: SYMBOL } });
+    const rows = await prisma.marketData.findMany({ where: { assetId: asset.id, timeframe: "H1", source: SOURCE }, orderBy: { timestamp: "asc" } });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].open).toBe(1.1);
+  });
+
+  it("is idempotent — running the identical bars twice never duplicates rows", async () => {
+    const bars = [mt5Bar("2019-01-02T00:00:00.000Z", 1.2, 1.22, 1.19, 1.21, 90)];
+    const first = await importHistoricalMarketDataForBars({ internalSymbol: SYMBOL, timeframe: "H1", source: SOURCE, bars });
+    const second = await importHistoricalMarketDataForBars({ internalSymbol: SYMBOL, timeframe: "H1", source: SOURCE, bars });
+    expect(first.inserted).toBe(1);
+    expect(second.inserted).toBe(0);
+    expect(second.duplicates).toBe(1);
+
+    const asset = await prisma.asset.findUniqueOrThrow({ where: { symbol: SYMBOL } });
+    const count = await prisma.marketData.count({ where: { assetId: asset.id, timeframe: "H1", source: SOURCE, timestamp: new Date("2019-01-02T00:00:00.000Z") } });
+    expect(count).toBe(1);
+  });
+
+  it("rejects invalid OHLC (high < low) the same way the CSV path does — via the shared validateCandleBatch", async () => {
+    const bars = [{ ...mt5Bar("2019-01-02T05:00:00.000Z", 1.2, 1.15, 1.25, 1.18, 50) }]; // high < low
+    const result = await importHistoricalMarketDataForBars({ internalSymbol: SYMBOL, timeframe: "H1", source: SOURCE, bars });
+    expect(result.inserted).toBe(0);
+    expect(result.invalid).toBe(1);
+  });
+
+  it("still refuses the reserved live-API source label", async () => {
+    await expect(importHistoricalMarketDataForBars({ internalSymbol: SYMBOL, timeframe: "H1", source: "binance", bars: [] })).rejects.toThrow(/reservado/);
+  });
+
+  it("normalizes chronological order before persisting, regardless of input order", async () => {
+    const outOfOrder = [mt5Bar("2019-01-02T10:00:00.000Z", 1.3, 1.32, 1.29, 1.31, 10), mt5Bar("2019-01-02T09:00:00.000Z", 1.29, 1.31, 1.28, 1.3, 10)];
+    const result = await importHistoricalMarketDataForBars({ internalSymbol: SYMBOL, timeframe: "H1", source: SOURCE, bars: outOfOrder });
+    expect(result.firstTimestamp?.toISOString()).toBe("2019-01-02T09:00:00.000Z");
+    expect(result.lastTimestamp?.toISOString()).toBe("2019-01-02T10:00:00.000Z");
   });
 });

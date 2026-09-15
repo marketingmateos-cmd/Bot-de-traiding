@@ -1,0 +1,276 @@
+"""
+EdgeLab AI — MT5 DEMO READ-ONLY DATA CONNECTOR.
+
+Talks to a real MetaTrader 5 terminal through the OFFICIAL `MetaTrader5`
+Python package. That package only installs/works on Windows (it wraps
+terminal64.exe's API and requires an MT5 terminal process running on the
+SAME machine, or under Wine) — it is architecturally unavailable on this
+Linux sandbox, which is why nothing in this repository has ever exercised
+a real end-to-end connection (see docs/mt5-data-connector.md and
+docs/mt5-demo-integration.md, which document the same constraint for the
+TypeScript side's `Mt5ClientLike`). This module is nonetheless a complete,
+correct implementation, meant to run on a real Windows/Wine machine with a
+real MT5 DEMO terminal installed.
+
+READ-ONLY BY DESIGN: this module never calls `order_send`, `order_check`,
+`order_calc_margin`, `order_calc_profit`, or any other order/position-
+modifying MT5 function. A structural test (TypeScript side, greps this
+file's own source) fails the build if it ever does. The only MT5 API
+surface used here is: initialize, login, account_info, symbols_get/
+symbol_info, copy_rates_range, shutdown, last_error.
+
+Environment variables (never hard-coded, never logged, never included in
+any exception message):
+    MT5_LOGIN
+    MT5_PASSWORD
+    MT5_SERVER
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Optional, Sequence
+
+try:
+    import MetaTrader5 as mt5  # type: ignore[import-not-found]
+
+    _IMPORT_ERROR: Optional[BaseException] = None
+except ImportError as exc:  # pragma: no cover - exercised only on non-Windows environments
+    mt5 = None  # type: ignore[assignment]
+    _IMPORT_ERROR = exc
+
+
+class Mt5ConfigError(Exception):
+    """Raised when required MT5 credentials are missing from the environment. Never names which one."""
+
+
+class Mt5ConnectionError(Exception):
+    """Raised for any transport/initialize/login/API failure. Messages come from MT5's own last_error(), never a credential."""
+
+
+class Mt5NotDemoError(Exception):
+    """THE inviolable safety check failure (spec section 2). Never includes account/balance/login details."""
+
+
+@dataclass(frozen=True)
+class Mt5Config:
+    login: int
+    password: str
+    server: str
+
+
+def get_mt5_config() -> Mt5Config:
+    """Reads MT5_LOGIN/MT5_PASSWORD/MT5_SERVER from the environment.
+
+    Fails with the exact, safe message "MT5 configuration is incomplete"
+    when any of the three is missing or MT5_LOGIN isn't a valid integer —
+    deliberately never says WHICH one, so no exception message, log line,
+    or surfaced error can leak "which credential is/isn't configured" as
+    a side channel.
+    """
+    login_raw = os.environ.get("MT5_LOGIN")
+    password = os.environ.get("MT5_PASSWORD")
+    server = os.environ.get("MT5_SERVER")
+
+    if not login_raw or not password or not server:
+        raise Mt5ConfigError("MT5 configuration is incomplete")
+
+    try:
+        login = int(login_raw)
+    except ValueError:
+        raise Mt5ConfigError("MT5 configuration is incomplete") from None
+
+    return Mt5Config(login=login, password=password, server=server)
+
+
+def _require_mt5_package() -> None:
+    if mt5 is None:
+        raise Mt5ConnectionError(
+            "The MetaTrader5 Python package is not available in this environment "
+            "(it only installs on Windows, talking to a local MT5 terminal process — "
+            "see docs/mt5-data-connector.md). Import error: "
+            f"{type(_IMPORT_ERROR).__name__ if _IMPORT_ERROR else 'unknown'}"
+        )
+
+
+def initialize_and_login(config: Mt5Config) -> None:
+    """Initializes the MT5 terminal connection and logs in. Raises Mt5ConnectionError on any failure — never silently continues."""
+    _require_mt5_package()
+    if not mt5.initialize():
+        code, description = mt5.last_error()
+        raise Mt5ConnectionError(f"MT5 initialize() failed: [{code}] {description}")
+
+    ok = mt5.login(config.login, password=config.password, server=config.server)
+    if not ok:
+        code, description = mt5.last_error()
+        mt5.shutdown()
+        raise Mt5ConnectionError(f"MT5 login() failed: [{code}] {description}")
+
+
+@dataclass(frozen=True)
+class Mt5AccountSummary:
+    broker: str
+    server: str
+    login: int
+    trade_mode: int
+    is_demo: bool
+    balance: float
+    equity: float
+    margin: float
+    free_margin: float
+    leverage: int
+    currency: str
+
+
+def get_account_info() -> Mt5AccountSummary:
+    _require_mt5_package()
+    info = mt5.account_info()
+    if info is None:
+        code, description = mt5.last_error()
+        raise Mt5ConnectionError(f"account_info() returned None: [{code}] {description}")
+
+    is_demo = info.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO
+    return Mt5AccountSummary(
+        broker=info.company,
+        server=info.server,
+        login=info.login,
+        trade_mode=info.trade_mode,
+        is_demo=is_demo,
+        balance=info.balance,
+        equity=info.equity,
+        margin=info.margin,
+        free_margin=info.margin_free,
+        leverage=info.leverage,
+        currency=info.currency,
+    )
+
+
+def assert_demo_or_raise(account: Mt5AccountSummary) -> None:
+    """THE inviolable DEMO safety check (spec section 2).
+
+    Compares the OFFICIAL `ACCOUNT_TRADE_MODE` attribute (already captured
+    as `account.trade_mode`, read verbatim from `mt5.account_info()`)
+    against the OFFICIAL `mt5.ACCOUNT_TRADE_MODE_DEMO` constant — never a
+    proxy such as server name, account comment, symbol name, broker name,
+    or an environment variable. `account.is_demo` was computed with this
+    exact comparison in `get_account_info()`; this function re-checks it
+    explicitly (never trusts a cached boolean from elsewhere) and aborts
+    for ANY value that isn't literally DEMO — including
+    ACCOUNT_TRADE_MODE_REAL, ACCOUNT_TRADE_MODE_CONTEST, or any future/
+    unrecognized value. The error message never includes balance, login,
+    server, or any other account detail — only that the account isn't demo.
+    """
+    if account.trade_mode != mt5.ACCOUNT_TRADE_MODE_DEMO:
+        raise Mt5NotDemoError("Account is not a MetaTrader 5 DEMO account (ACCOUNT_TRADE_MODE != ACCOUNT_TRADE_MODE_DEMO).")
+
+
+def discover_symbol(candidates: Sequence[str]) -> Optional[str]:
+    """Tries each candidate broker symbol name in order against the LIVE
+    terminal's own `symbol_info()`. Returns the first that exists, or None
+    — never invents/guesses a name outside the given candidate list."""
+    _require_mt5_package()
+    for name in candidates:
+        info = mt5.symbol_info(name)
+        if info is not None:
+            return name
+    return None
+
+
+_SUPPORTED_TIMEFRAMES = ("H1", "H4", "D1")
+
+
+def _timeframe_constant(timeframe: str) -> int:
+    _require_mt5_package()
+    if timeframe not in _SUPPORTED_TIMEFRAMES:
+        raise ValueError(f"Unsupported timeframe: {timeframe!r} (supported: {_SUPPORTED_TIMEFRAMES})")
+    mapping = {"H1": mt5.TIMEFRAME_H1, "H4": mt5.TIMEFRAME_H4, "D1": mt5.TIMEFRAME_D1}
+    return mapping[timeframe]
+
+
+def _iso_ms_utc(ts) -> str:
+    """Formats a UTC timestamp exactly like JavaScript's `Date.prototype.toISOString()`
+    (`YYYY-MM-DDTHH:MM:SS.sssZ`, always 3 millisecond digits, always "Z") —
+    kept in sync deliberately with computeDatasetHash() on the TypeScript
+    side (src/lib/research/researchDataset.ts) so the hash this module
+    computes over the SAME rows is directly comparable, not just
+    independently deterministic. MT5 bar timestamps are always on exact
+    second boundaries for H1/H4/D1, so milliseconds are always "000" here,
+    but the format is written generically rather than assuming that."""
+    dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S") + f".{dt.microsecond // 1000:03d}Z"
+
+
+def get_historical_rates(symbol: str, timeframe: str, start: datetime, end: datetime) -> list[dict]:
+    """READ-ONLY historical OHLCV, native MT5 timeframe (no resampling).
+
+    Returns a list of dicts with the canonical timestamp/open/high/low/
+    close/volume fields (volume = tick_volume — see docs/mt5-data-connector.md
+    for why real_volume is not used as the canonical field) plus the raw
+    tick_volume/spread/real_volume MT5 also reports. Never fabricates a
+    row; an empty/unavailable range raises Mt5ConnectionError rather than
+    silently returning partial or synthetic data.
+    """
+    _require_mt5_package()
+    tf = _timeframe_constant(timeframe)
+    rates = mt5.copy_rates_range(symbol, tf, start, end)
+    if rates is None:
+        code, description = mt5.last_error()
+        raise Mt5ConnectionError(f"copy_rates_range() failed for {symbol}/{timeframe}: [{code}] {description}")
+
+    bars = []
+    for r in rates:
+        bars.append(
+            {
+                "timestamp": _iso_ms_utc(r["time"]),
+                "open": float(r["open"]),
+                "high": float(r["high"]),
+                "low": float(r["low"]),
+                "close": float(r["close"]),
+                "volume": float(r["tick_volume"]),
+                "tick_volume": int(r["tick_volume"]),
+                "spread": int(r["spread"]),
+                "real_volume": int(r["real_volume"]),
+            }
+        )
+    return bars
+
+
+def shutdown() -> None:
+    if mt5 is not None:
+        mt5.shutdown()
+
+
+def _js_number_str(x: float) -> str:
+    """Formats a number exactly like JavaScript's `Number.prototype.toString()`
+    — critically, a whole-number float like `100.0` becomes `"100"`, never
+    `"100.0"`. Python's `repr()`/`str()` for a float already matches JS's
+    shortest-round-trip representation for every NON-whole value (both
+    languages use an equivalent shortest-round-trip algorithm), so this is
+    the ONE necessary correction, not a general reimplementation of
+    float-to-string. Volume fields (tick counts) are whole numbers far
+    more often than price fields, which is exactly where this would
+    otherwise silently produce a hash that could never match the
+    TypeScript side's for the identical dataset."""
+    if float(x).is_integer():
+        return str(int(x))
+    return repr(float(x))
+
+
+def compute_dataset_hash(bars: Sequence[dict]) -> str:
+    """Same convention as the TypeScript side's `computeDatasetHash()`
+    (src/lib/research/researchDataset.ts): rows sorted chronologically,
+    `timestamp|open|high|low|close|volume` per line — numbers formatted via
+    `_js_number_str()` so they byte-match JS's `.toString()`, never
+    Python's own float `str()`/`repr()` directly (see that function's own
+    docstring for why) — lines joined with "\\n", SHA-256 hex digest over
+    the result. Deliberately documented and frozen here BEFORE any real
+    dataset is hashed with it — see spec section 9. The SAME bars, hashed
+    on either side of the pipeline, MUST produce the SAME hash — verified
+    by a byte-for-byte comparison test (see docs/mt5-data-connector.md).
+    """
+    ordered = sorted(bars, key=lambda b: b["timestamp"])
+    lines = [f"{b['timestamp']}|{_js_number_str(b['open'])}|{_js_number_str(b['high'])}|{_js_number_str(b['low'])}|{_js_number_str(b['close'])}|{_js_number_str(b['volume'])}" for b in ordered]
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()

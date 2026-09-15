@@ -1,4 +1,4 @@
-import type { Mt5AccountInfo, Mt5Credentials, Mt5Position, Mt5Quote, Mt5SymbolSpec, PlaceOrderRequest, PlaceOrderResult } from "./types";
+import type { Mt5AccountInfo, Mt5Credentials, Mt5HistoricalBar, Mt5HistoricalTimeframe, Mt5Position, Mt5Quote, Mt5SymbolSpec, PlaceOrderRequest, PlaceOrderResult } from "./types";
 
 /**
  * MT5 Fase 1 — the LOW-LEVEL bridge to an actual MetaTrader 5 terminal.
@@ -33,6 +33,8 @@ export interface Mt5ClientLike {
   symbolInfo(symbol: string): Promise<Mt5SymbolSpec | null>;
   quote(symbol: string): Promise<Mt5Quote | null>;
   positions(): Promise<Mt5Position[]>;
+  /** MT5 Data Connector phase — READ-ONLY, native timeframe (no resampling). Empty array (never throws) when the symbol/range yields nothing. */
+  historicalRates(symbol: string, timeframe: Mt5HistoricalTimeframe, start: Date, end: Date): Promise<Mt5HistoricalBar[]>;
   orderSend(request: PlaceOrderRequest): Promise<PlaceOrderResult>;
 }
 
@@ -68,6 +70,9 @@ export function createUnavailableMt5Client(): Mt5ClientLike {
       return null;
     },
     async positions() {
+      return [];
+    },
+    async historicalRates() {
       return [];
     },
     async orderSend() {

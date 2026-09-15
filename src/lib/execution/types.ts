@@ -79,6 +79,31 @@ export interface PlaceOrderResult {
   rejectionReason: string | null;
 }
 
+/**
+ * MT5 Data Connector phase — the historical-data READ surface. Deliberately
+ * a plain OHLCV shape compatible with `OHLCVBar` (src/lib/providers/types.ts)
+ * so it flows straight into the existing candle validation/import/dataset
+ * pipeline (candleValidation.ts, offlineImporter.ts, researchDataset.ts)
+ * without any adapter-specific reshaping. `tickVolume`/`spread`/`realVolume`
+ * are additional, MT5-specific fields — populated only when MT5 itself
+ * reports them reliably for the symbol, never fabricated; see
+ * docs/mt5-data-connector.md for which symbols have real vs. proxy volume.
+ */
+export type Mt5HistoricalTimeframe = "H1" | "H4" | "D1";
+
+export interface Mt5HistoricalBar {
+  timestamp: Date;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  /** Canonical OHLCV volume used everywhere else in the pipeline — for MT5 this is tick_volume (see docs), never real_volume, which is 0/unreliable for most FX/CFD symbols. */
+  volume: number;
+  tickVolume: number | null;
+  spread: number | null;
+  realVolume: number | null;
+}
+
 export interface Mt5Position {
   ticket: string;
   symbol: string;
@@ -122,6 +147,24 @@ export interface TradingExecutionAdapter {
   getSymbolSpec(symbol: string): Promise<Mt5SymbolSpec | null>;
   getQuote(symbol: string): Promise<Mt5Quote | null>;
   getOpenPositions(): Promise<Mt5Position[]>;
-  /** Refuses (REJECTED, never throws) unless the account is a verified demo AND the execution safety switch is enabled — see mt5DemoExecutionAdapter.ts. */
+  /**
+   * MT5 Data Connector phase — READ-ONLY historical OHLCV, part of the same
+   * DATA surface as getAccountInfo/getSymbols/getQuote above (connect,
+   * authenticate, verify DEMO, read). Never touches order/position state,
+   * never requires the execution Safety Switch. Returns bars strictly
+   * within [start, end], ascending by timestamp, exactly as MT5 reports
+   * them for that native timeframe — no resampling. See
+   * docs/mt5-data-connector.md for the full READ vs EXECUTION separation.
+   */
+  getHistoricalBars(symbol: string, timeframe: Mt5HistoricalTimeframe, start: Date, end: Date): Promise<Mt5HistoricalBar[]>;
+  /**
+   * EXECUTION — the one method in this interface that can change account
+   * state. Refuses (REJECTED, never throws) unless the account is a
+   * verified demo AND the execution safety switch is enabled (both the
+   * DB-backed one AND the ENABLE_DEMO_EXECUTION env var) — see
+   * mt5DemoExecutionAdapter.ts. Never called by anything in the MT5 Data
+   * Connector's ingestion path (src/lib/marketData/mt5HistoricalIngestion.ts) —
+   * enforced by a structural test.
+   */
   placeOrder(request: PlaceOrderRequest): Promise<PlaceOrderResult>;
 }

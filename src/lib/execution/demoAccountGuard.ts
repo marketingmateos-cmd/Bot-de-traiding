@@ -1,4 +1,5 @@
 import { anyBreakerTripped } from "@/lib/engines/circuitBreakers";
+import { env } from "@/lib/env";
 import type { Mt5AccountInfo } from "./types";
 
 /**
@@ -46,6 +47,17 @@ export interface Mt5ExecutionEligibilityResult {
 export async function canEnableMt5Execution(input: Mt5ExecutionEligibilityInput): Promise<Mt5ExecutionEligibilityResult> {
   const reasons: string[] = [];
 
+  // MT5 Data Connector phase — an additional, environment-level kill switch
+  // (ENABLE_DEMO_EXECUTION), independent of every other precondition here.
+  // Re-read live from `env` on every call, never cached: this is the ONE
+  // path that can ever set `executionEnabled` to true (see
+  // src/app/api/mt5/execution-switch/route.ts), so gating it here means
+  // there is no alternate route that could enable execution while this
+  // env var is unset/false. Turning execution off is never affected by
+  // this — see that route's own comment on the "off is always allowed" rule.
+  if (!env.isDemoExecutionEnabledByEnv) {
+    reasons.push("ENABLE_DEMO_EXECUTION no está activado en el entorno — la ejecución permanece desactivada por diseño en la fase de conector de datos.");
+  }
   if (input.connectionStatus !== "CONNECTED") {
     reasons.push("MT5 no está conectado.");
   }

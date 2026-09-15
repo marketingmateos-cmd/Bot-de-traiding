@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
-import { getSymbolMapping, listSymbolMappings, resolveMt5Symbol, setSymbolMapping } from "../mt5SymbolMapper";
+import { getSymbolMapping, listSymbolMappings, resolveMt5Symbol, setSymbolMapping, discoverMt5Symbols } from "../mt5SymbolMapper";
 import { makeFakeMt5Client } from "./testFixtures";
 import { MT5DemoExecutionAdapter } from "../mt5DemoExecutionAdapter";
 
@@ -83,5 +83,49 @@ describe("MT5 Fase 2, spec section 5 — resolveMt5Symbol: unavailable symbol", 
     const result = await resolveMt5Symbol("SYMTEST_REMOVED", adapter);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/no está disponible/);
+  });
+});
+
+describe("MT5 Data Connector, spec section 6 — discoverMt5Symbols", () => {
+  it("finds a known broker symbol on the first candidate and persists the mapping", async () => {
+    const adapter = new MT5DemoExecutionAdapter(makeFakeMt5Client({ symbols: async () => ["EURUSD", "XAUUSD"] }));
+    const results = await discoverMt5Symbols(adapter, { SYMTEST_EURUSD: ["EURUSD"], SYMTEST_XAUUSD: ["XAUUSD", "GOLD"] });
+    expect(results).toEqual(
+      expect.arrayContaining([
+        { edgeLabSymbol: "SYMTEST_EURUSD", found: true, mt5Symbol: "EURUSD", candidatesTried: ["EURUSD"] },
+        { edgeLabSymbol: "SYMTEST_XAUUSD", found: true, mt5Symbol: "XAUUSD", candidatesTried: ["XAUUSD", "GOLD"] },
+      ])
+    );
+    const row = await getSymbolMapping("SYMTEST_EURUSD");
+    expect(row?.mt5Symbol).toBe("EURUSD");
+  });
+
+  it("falls back to a later candidate when the first isn't available on this broker (broker-specific naming)", async () => {
+    const adapter = new MT5DemoExecutionAdapter(makeFakeMt5Client({ symbols: async () => ["SPX500", "GER40"] }));
+    const results = await discoverMt5Symbols(adapter, { SYMTEST_US500: ["US500", "SPX500", "US500.cash"], SYMTEST_DAX: ["DAX", "GER40"] });
+    expect(results.find((r) => r.edgeLabSymbol === "SYMTEST_US500")).toEqual({ edgeLabSymbol: "SYMTEST_US500", found: true, mt5Symbol: "SPX500", candidatesTried: ["US500", "SPX500", "US500.cash"] });
+    expect(results.find((r) => r.edgeLabSymbol === "SYMTEST_DAX")).toEqual({ edgeLabSymbol: "SYMTEST_DAX", found: true, mt5Symbol: "GER40", candidatesTried: ["DAX", "GER40"] });
+  });
+
+  it("ambiguous mapping — when MULTIPLE candidates exist on the broker, the FIRST one in the candidate list wins, deterministically", async () => {
+    // A broker that happens to expose BOTH "US500" and "SPX500" — the
+    // candidate list order (not alphabetical, not "most recently seen")
+    // is what decides it, and it's the same result every time.
+    const adapter = new MT5DemoExecutionAdapter(makeFakeMt5Client({ symbols: async () => ["SPX500", "US500"] }));
+    const results = await discoverMt5Symbols(adapter, { SYMTEST_US500: ["US500", "SPX500"] });
+    expect(results).toEqual([{ edgeLabSymbol: "SYMTEST_US500", found: true, mt5Symbol: "US500", candidatesTried: ["US500", "SPX500"] }]);
+
+    // Re-running with the SAME inputs must be deterministic — never
+    // "whichever the terminal happens to answer first".
+    const again = await discoverMt5Symbols(adapter, { SYMTEST_US500: ["US500", "SPX500"] });
+    expect(again).toEqual(results);
+  });
+
+  it("reports found:false (never invents a symbol) when no candidate exists on this broker", async () => {
+    const adapter = new MT5DemoExecutionAdapter(makeFakeMt5Client({ symbols: async () => ["EURUSD"] }));
+    const results = await discoverMt5Symbols(adapter, { SYMTEST_NAS100: ["NAS100", "USTEC"] });
+    expect(results).toEqual([{ edgeLabSymbol: "SYMTEST_NAS100", found: false, mt5Symbol: null, candidatesTried: ["NAS100", "USTEC"] }]);
+    const row = await getSymbolMapping("SYMTEST_NAS100");
+    expect(row).toBeNull(); // never persists a mapping for something it didn't actually find
   });
 });

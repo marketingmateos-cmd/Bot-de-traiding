@@ -241,20 +241,116 @@ function parseCsv(content: string): CsvParseResult {
  * every already-correctly-stored row rather than creating new ones.
  */
 export async function importHistoricalMarketDataFromFile(options: OfflineImportOptions): Promise<OfflineImportStats> {
+  const mapping = resolveInternalSymbol(options.exchangeSymbol);
+
+  let rowsRead = 0;
+  let parsed: ParsedRow[] = [];
+  let parseErrorCount = 0;
+  let readError: string | null = null;
+  try {
+    const content = readFileSync(options.filePath, "utf-8");
+    const result = parseCsv(content);
+    rowsRead = result.rowsRead;
+    parsed = result.parsed;
+    parseErrorCount = result.errors.length;
+  } catch (err) {
+    readError = err instanceof Error ? err.message : String(err);
+  }
+
+  // Fase 9.1 requirement: "ordenar por timestamp" — a file is not
+  // guaranteed to arrive sorted the way a paginated API response is, so
+  // this is sorted explicitly before anything downstream (chronology
+  // checks, range clipping, diffing) ever runs.
+  const sorted = parsed.map((p) => p.bar).sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+  return persistOfflineBars({
+    internalSymbol: mapping.internalSymbol,
+    timeframe: options.timeframe,
+    source: options.source,
+    startDate: options.startDate,
+    endDate: options.endDate,
+    rowsRead,
+    bars: sorted,
+    preValidationInvalidCount: parseErrorCount,
+    preValidationError: readError,
+  });
+}
+
+/**
+ * MT5 Data Connector phase — the same persistence pipeline as
+ * `importHistoricalMarketDataFromFile` (identical validation, diff-based
+ * upsert, idempotency, `MarketDataImportLog` bookkeeping), for a source
+ * that does NOT go through Binance's `resolveInternalSymbol` (which would
+ * throw for any non-Binance symbol like "EURUSD" or "XAUUSD" — there is no
+ * `BINANCE_SYMBOL_MAPPINGS` entry for those, nor should there be). The
+ * caller already knows its own internal symbol (for MT5, the EdgeLab
+ * canonical symbol — see mt5SymbolMapper.ts, a SEPARATE, MT5-specific
+ * mapping, never this Binance-specific one) and already has the bars in
+ * memory (from `TradingExecutionAdapter.getHistoricalBars()`), so there is
+ * no file to read or CSV to parse here — this is the shared persistence
+ * core that both entry points funnel into.
+ */
+export interface ImportBarsOptions {
+  internalSymbol: string;
+  timeframe: TimeframeCode;
+  source: string;
+  bars: OHLCVBar[];
+  startDate?: Date;
+  endDate?: Date;
+}
+
+export async function importHistoricalMarketDataForBars(options: ImportBarsOptions): Promise<OfflineImportStats> {
+  const sorted = [...options.bars].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  return persistOfflineBars({
+    internalSymbol: options.internalSymbol,
+    timeframe: options.timeframe,
+    source: options.source,
+    startDate: options.startDate,
+    endDate: options.endDate,
+    rowsRead: options.bars.length,
+    bars: sorted,
+    preValidationInvalidCount: 0,
+    preValidationError: null,
+  });
+}
+
+interface PersistOfflineBarsOptions {
+  internalSymbol: string;
+  timeframe: TimeframeCode;
+  source: string;
+  startDate?: Date;
+  endDate?: Date;
+  /** Total rows the caller saw before parsing/validation — CSV data-line count, or bars.length for the pre-parsed path. */
+  rowsRead: number;
+  /** Already chronologically sorted. */
+  bars: OHLCVBar[];
+  /** Rows that never became a `ParsedRow` at all (CSV parse errors) — 0 for the pre-parsed bars path, since there's nothing to fail to parse. */
+  preValidationInvalidCount: number;
+  /** A read/parse-level failure (e.g. file not found, malformed CSV) that means `bars` may be incomplete or empty — surfaced as this run's error, never silently ignored. */
+  preValidationError: string | null;
+}
+
+/**
+ * The shared persistence core both `importHistoricalMarketDataFromFile`
+ * (Binance CSV path) and `importHistoricalMarketDataForBars` (MT5 / any
+ * future non-file source) funnel into — one copy of the validation,
+ * diff-based upsert, idempotency, and `MarketDataImportLog` bookkeeping
+ * logic, never two.
+ */
+async function persistOfflineBars(options: PersistOfflineBarsOptions): Promise<OfflineImportStats> {
   if (options.source.trim().toLowerCase() === RESERVED_LIVE_API_SOURCE) {
-    throw new Error(`source="${options.source}" está reservado para la ruta de la API en vivo (importer.ts). Usa una etiqueta explícita distinta, p. ej. "binance_csv".`);
+    throw new Error(`source="${options.source}" está reservado para la ruta de la API en vivo (importer.ts). Usa una etiqueta explícita distinta, p. ej. "binance_csv" o "mt5_demo".`);
   }
   if (options.source.trim() === "") {
     throw new Error("source es obligatorio y no puede estar vacío — nunca se asume que un archivo es REAL sin metadata explícita.");
   }
 
-  const mapping = resolveInternalSymbol(options.exchangeSymbol);
   const source = options.source.trim();
 
   const asset = await prisma.asset.upsert({
-    where: { symbol: mapping.internalSymbol },
+    where: { symbol: options.internalSymbol },
     update: {},
-    create: { symbol: mapping.internalSymbol, name: mapping.internalSymbol },
+    create: { symbol: options.internalSymbol, name: options.internalSymbol },
   });
 
   const importLog = await prisma.marketDataImportLog.create({
@@ -268,29 +364,22 @@ export async function importHistoricalMarketDataFromFile(options: OfflineImportO
     },
   });
 
-  let rowsRead = 0;
   let rowsValid = 0;
   let inserted = 0;
   let updated = 0;
   let duplicates = 0;
   let skipped = 0;
-  let invalid = 0;
+  let invalid = options.preValidationInvalidCount;
   let firstTimestamp: Date | null = null;
   let lastTimestamp: Date | null = null;
   let anyRowWritten = false;
-  let caughtError: string | null = null;
+  let caughtError: string | null = options.preValidationError;
 
   try {
-    const content = readFileSync(options.filePath, "utf-8");
-    const { rowsRead: read, parsed, errors: parseErrors } = parseCsv(content);
-    rowsRead = read;
-    invalid += parseErrors.length;
-
-    // Fase 9.1 requirement: "ordenar por timestamp" — a file is not
-    // guaranteed to arrive sorted the way a paginated API response is, so
-    // this is sorted explicitly before anything downstream (chronology
-    // checks, range clipping, diffing) ever runs.
-    const sorted = parsed.map((p) => p.bar).sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    if (options.preValidationError) {
+      throw new Error(options.preValidationError);
+    }
+    const sorted = options.bars;
 
     const { valid, invalid: invalidCandles } = validateCandleBatch(sorted);
     invalid += invalidCandles.length;
@@ -382,8 +471,8 @@ export async function importHistoricalMarketDataFromFile(options: OfflineImportO
   await prisma.marketDataImportLog.update({
     where: { id: importLog.id },
     data: {
-      rowsRequested: rowsRead,
-      rowsReceived: rowsRead,
+      rowsRequested: options.rowsRead,
+      rowsReceived: options.rowsRead,
       rowsInserted: inserted,
       rowsUpdated: updated,
       rowsSkipped: skipped + duplicates,
@@ -401,5 +490,5 @@ export async function importHistoricalMarketDataFromFile(options: OfflineImportO
     },
   });
 
-  return { rowsRead, rowsValid, inserted, updated, duplicates, skipped, invalid, firstTimestamp, lastTimestamp, status, error: caughtError, importLogId: importLog.id };
+  return { rowsRead: options.rowsRead, rowsValid, inserted, updated, duplicates, skipped, invalid, firstTimestamp, lastTimestamp, status, error: caughtError, importLogId: importLog.id };
 }
