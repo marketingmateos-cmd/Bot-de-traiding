@@ -193,33 +193,43 @@ describe.skipIf(!hasPython3())("MT5 REAL DEMO SMOKE TEST — execution kill swit
   it("aborts immediately, exit code 1, when ENABLE_DEMO_EXECUTION=true — never even reaches the credential check", () => {
     const { output, exitCode } = runPython(TEST_SCRIPT_FILE, {
       ENABLE_DEMO_EXECUTION: "true",
-      MT5_LOGIN: undefined,
-      MT5_PASSWORD: undefined,
-      MT5_SERVER: undefined,
+      MT5_LOGIN: "",
+      MT5_PASSWORD: "",
+      MT5_SERVER: "",
     });
     expect(exitCode).toBe(1);
     expect(output).toMatch(/ENABLE_DEMO_EXECUTION is true — refusing to run/);
     expect(output).not.toMatch(/MT5 configuration is incomplete/);
   });
 
+  // NOTE: these two tests pass "" (not `undefined`/deleted) for the MT5_*
+  // vars — an empty string still counts as "already set" for
+  // load_dotenv_local()'s "process env wins over .env.local" rule, so the
+  // simulated-missing-credentials case stays correct even when a real
+  // .env.local happens to exist on disk (e.g. a developer's own local
+  // checkout) — deleting the keys instead would let the script silently
+  // fill them back in from that real file and falsify this test.
   it("treats any non-'true' value (case-insensitive comparison, exact match required) as disabled and proceeds past the kill-switch check", () => {
     const { output, exitCode } = runPython(TEST_SCRIPT_FILE, {
       ENABLE_DEMO_EXECUTION: "TRUE_BUT_NOT_EXACTLY",
-      MT5_LOGIN: undefined,
-      MT5_PASSWORD: undefined,
-      MT5_SERVER: undefined,
+      MT5_LOGIN: "",
+      MT5_PASSWORD: "",
+      MT5_SERVER: "",
     });
     expect(exitCode).toBe(1);
     expect(output).not.toMatch(/ENABLE_DEMO_EXECUTION is true/);
     expect(output).toMatch(/MT5 configuration is incomplete/);
   });
 
-  it("proceeds past the kill-switch check when ENABLE_DEMO_EXECUTION is unset, then fails safely (and expectedly) on missing credentials", () => {
+  it("proceeds past the kill-switch check when ENABLE_DEMO_EXECUTION is unset/empty, then fails safely (and expectedly) on missing credentials", () => {
+    // "" rather than `undefined` here too — a real .env.local's own
+    // ENABLE_DEMO_EXECUTION value must never leak into this "unset"
+    // simulation either; "" and truly-unset both normalize to disabled.
     const { output, exitCode } = runPython(TEST_SCRIPT_FILE, {
-      ENABLE_DEMO_EXECUTION: undefined,
-      MT5_LOGIN: undefined,
-      MT5_PASSWORD: undefined,
-      MT5_SERVER: undefined,
+      ENABLE_DEMO_EXECUTION: "",
+      MT5_LOGIN: "",
+      MT5_PASSWORD: "",
+      MT5_SERVER: "",
     });
     expect(exitCode).toBe(1);
     expect(output).toMatch(/MT5 configuration is incomplete/);
@@ -342,9 +352,13 @@ describe.skipIf(!hasPython3())("MT5 REAL DEMO SMOKE TEST — mt5_precheck.py (sp
   });
 
   it("names WHICH env var(s) are missing by NAME — a deliberately different convention from get_mt5_config()'s intentionally-vague message, since this is a local diagnostic tool, never a value leak", () => {
+    // "" (not `undefined`/deleted) for the two "missing" vars — see the
+    // note on the kill-switch tests above: this must stay correct even
+    // when a real .env.local exists on disk (load_dotenv_local only
+    // fills a key that is entirely ABSENT from the environment).
     const { output } = runPython(PRECHECK_FILE, {
-      MT5_LOGIN: undefined,
-      MT5_PASSWORD: undefined,
+      MT5_LOGIN: "",
+      MT5_PASSWORD: "",
       MT5_SERVER: "Demo-Server",
     });
     expect(output).toMatch(/Missing environment variable\(s\): MT5_LOGIN, MT5_PASSWORD/);

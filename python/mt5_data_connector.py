@@ -17,7 +17,8 @@ READ-ONLY BY DESIGN: this module never calls `order_send`, `order_check`,
 modifying MT5 function. A structural test (TypeScript side, greps this
 file's own source) fails the build if it ever does. The only MT5 API
 surface used here is: initialize, login, account_info, symbols_get/
-symbol_info, copy_rates_range, shutdown, last_error.
+symbol_info, copy_rates_range, copy_rates_from, copy_rates_from_pos,
+shutdown, last_error.
 
 Environment variables (never hard-coded, never logged, never included in
 any exception message):
@@ -29,6 +30,7 @@ any exception message):
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -293,23 +295,12 @@ def _iso_ms_utc(ts) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S") + f".{dt.microsecond // 1000:03d}Z"
 
 
-def get_historical_rates(symbol: str, timeframe: str, start: datetime, end: datetime) -> list[dict]:
-    """READ-ONLY historical OHLCV, native MT5 timeframe (no resampling).
-
-    Returns a list of dicts with the canonical timestamp/open/high/low/
-    close/volume fields (volume = tick_volume — see docs/mt5-data-connector.md
-    for why real_volume is not used as the canonical field) plus the raw
-    tick_volume/spread/real_volume MT5 also reports. Never fabricates a
-    row; an empty/unavailable range raises Mt5ConnectionError rather than
-    silently returning partial or synthetic data.
-    """
-    _require_mt5_package()
-    tf = _timeframe_constant(timeframe)
-    rates = mt5.copy_rates_range(symbol, tf, start, end)
-    if rates is None:
-        code, description = mt5.last_error()
-        raise Mt5ConnectionError(f"copy_rates_range() failed for {symbol}/{timeframe}: [{code}] {description}")
-
+def _rates_to_bars(rates) -> list[dict]:
+    """Shared conversion from the raw MT5 `rates` structured array (however
+    it was fetched — `copy_rates_range`, `copy_rates_from`, or
+    `copy_rates_from_pos`) to this module's canonical bar-dict shape. Never
+    fabricates a row — a caller with an empty/None `rates` handles that
+    itself, this function just converts whatever real rows it's given."""
     bars = []
     for r in rates:
         bars.append(
@@ -326,6 +317,162 @@ def get_historical_rates(symbol: str, timeframe: str, start: datetime, end: date
             }
         )
     return bars
+
+
+def get_historical_rates(symbol: str, timeframe: str, start: datetime, end: datetime) -> list[dict]:
+    """READ-ONLY historical OHLCV, native MT5 timeframe (no resampling).
+
+    Returns a list of dicts with the canonical timestamp/open/high/low/
+    close/volume fields (volume = tick_volume — see docs/mt5-data-connector.md
+    for why real_volume is not used as the canonical field) plus the raw
+    tick_volume/spread/real_volume MT5 also reports. Never fabricates a
+    row; an empty/unavailable range raises Mt5ConnectionError rather than
+    silently returning partial or synthetic data.
+    """
+    _require_mt5_package()
+    tf = _timeframe_constant(timeframe)
+    rates = mt5.copy_rates_range(symbol, tf, start, end)
+    if rates is None:
+        code, description = mt5.last_error()
+        raise Mt5ConnectionError(f"copy_rates_range() failed for {symbol}/{timeframe}: [{code}] {description}")
+    return _rates_to_bars(rates)
+
+
+# Safely before any real broker's actual history — used only as the
+# starting point for probe_earliest_bar()'s `copy_rates_from`, never as a
+# claim that data exists there.
+_EPOCH_FLOOR = datetime(1990, 1, 1, tzinfo=timezone.utc)
+
+
+def probe_earliest_bar(symbol: str, timeframe: str) -> Optional[dict]:
+    """MT5 HISTORICAL DISCOVERY (read-only) — finds the SINGLE earliest bar
+    this broker's terminal actually has for (symbol, timeframe), transferring
+    only ONE row rather than the broker's entire history. Uses
+    `mt5.copy_rates_from(symbol, tf, _EPOCH_FLOOR, 1)`: MT5 returns the
+    first `count` bars AT OR AFTER `date_from`, in ascending order — since
+    `_EPOCH_FLOOR` predates any real broker's history, the single bar
+    returned is genuinely the earliest one available. Returns None if the
+    broker reports no history at all for this symbol/timeframe (never
+    raises for "no data" — only for a real API failure)."""
+    _require_mt5_package()
+    tf = _timeframe_constant(timeframe)
+    rates = mt5.copy_rates_from(symbol, tf, _EPOCH_FLOOR, 1)
+    if rates is None or len(rates) == 0:
+        return None
+    return _rates_to_bars(rates)[0]
+
+
+def probe_latest_bar(symbol: str, timeframe: str) -> Optional[dict]:
+    """Same idea as `probe_earliest_bar`, but for the single MOST RECENT
+    bar: `mt5.copy_rates_from_pos(symbol, tf, 0, 1)` — position 0 is
+    always the latest closed/forming bar. One-row transfer."""
+    _require_mt5_package()
+    tf = _timeframe_constant(timeframe)
+    rates = mt5.copy_rates_from_pos(symbol, tf, 0, 1)
+    if rates is None or len(rates) == 0:
+        return None
+    return _rates_to_bars(rates)[0]
+
+
+def get_recent_bars(symbol: str, timeframe: str, max_rows: int) -> list[dict]:
+    """MT5 HISTORICAL DISCOVERY (read-only) — the bounded VALIDATION SAMPLE:
+    up to `max_rows` most recent bars via `mt5.copy_rates_from_pos(symbol,
+    tf, 0, max_rows)`. Deliberately NOT the full practical range from
+    `probe_earliest_bar()` — downloading a broker's entire history just to
+    decide whether it's worth ingesting is exactly what this phase avoids
+    (see spec: "Do not download huge datasets unnecessarily"). Returns
+    however many bars the broker actually has, up to `max_rows` — never
+    pads to reach that count."""
+    _require_mt5_package()
+    tf = _timeframe_constant(timeframe)
+    rates = mt5.copy_rates_from_pos(symbol, tf, 0, max_rows)
+    if rates is None:
+        code, description = mt5.last_error()
+        raise Mt5ConnectionError(f"copy_rates_from_pos() failed for {symbol}/{timeframe}: [{code}] {description}")
+    return _rates_to_bars(rates)
+
+
+def estimate_expected_candle_count(earliest_iso: str, latest_iso: str, timeframe: str) -> int:
+    """Upper-bound ESTIMATE of how many candles the full practical range
+    (earliest_iso to latest_iso, from the two cheap probes) would contain
+    IF there were no gaps at all — `round(span / step) + 1`, the exact same
+    formula `coverage.ts`'s `coveragePct` uses for its own "expected if no
+    gaps" denominator. This is explicitly an estimate, never an actual
+    count — the real count can only be known by downloading the full
+    range, which this discovery phase deliberately does not do."""
+    if timeframe not in _TIMEFRAME_SECONDS:
+        raise ValueError(f"Unsupported timeframe: {timeframe!r} (supported: {tuple(_TIMEFRAME_SECONDS)})")
+    earliest_dt = datetime.strptime(earliest_iso, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+    latest_dt = datetime.strptime(latest_iso, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+    step = _TIMEFRAME_SECONDS[timeframe]
+    return round((latest_dt - earliest_dt).total_seconds() / step) + 1
+
+
+def compute_sample_coverage_pct(row_count: int, first_iso: str, last_iso: str, timeframe: str) -> Optional[float]:
+    """Same `coveragePct` formula as `coverage.ts`'s `computeMarketDataCoverage`
+    (`rowCount / expected-if-no-gaps * 100`), applied to the VALIDATION
+    SAMPLE (not the full practical range)."""
+    if row_count == 0:
+        return None
+    expected = estimate_expected_candle_count(first_iso, last_iso, timeframe)
+    return 100.0 * row_count / expected if expected > 0 else None
+
+
+def _is_finite_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _validate_one_bar(bar: dict) -> list[str]:
+    """Same rules as `validateOneCandle()` in
+    src/lib/marketData/candleValidation.ts, applied field-by-field so the
+    two are trivially diffable against each other: open/high/low/close
+    must be finite AND strictly positive; volume must be finite AND >= 0;
+    the high/low/open/close relationships are only checked once every
+    price is confirmed finite (a NaN would make every comparison silently
+    false otherwise)."""
+    reasons: list[str] = []
+    for name in ("open", "high", "low", "close"):
+        value = bar[name]
+        if not (_is_finite_number(value) and value > 0):
+            reasons.append(f"{name} debe ser un número finito positivo (recibido: {value})")
+    volume = bar["volume"]
+    if not (_is_finite_number(volume) and volume >= 0):
+        reasons.append(f"volume debe ser un número finito >= 0 (recibido: {volume})")
+
+    prices_finite = all(_is_finite_number(bar[k]) for k in ("open", "high", "low", "close"))
+    if prices_finite:
+        o, h, low, c = bar["open"], bar["high"], bar["low"], bar["close"]
+        if not (h >= low):
+            reasons.append(f"high ({h}) debe ser >= low ({low})")
+        if not (h >= o):
+            reasons.append(f"high ({h}) debe ser >= open ({o})")
+        if not (h >= c):
+            reasons.append(f"high ({h}) debe ser >= close ({c})")
+        if not (low <= o):
+            reasons.append(f"low ({low}) debe ser <= open ({o})")
+        if not (low <= c):
+            reasons.append(f"low ({low}) debe ser <= close ({c})")
+    return reasons
+
+
+def validate_ohlc_bars(bars: Sequence[dict]) -> dict:
+    """MT5 HISTORICAL DISCOVERY (read-only) — reject-not-score OHLC
+    validation over a bar sample, mirroring `validateCandleBatch()`
+    (candleValidation.ts) field-for-field. Returns
+    `{"valid": [...], "invalid": [{"bar": ..., "reasons": [...]}, ...]}` —
+    invalid bars are reported, never silently dropped from the report
+    (they ARE dropped from the hash — see `mt5_historical_discovery.py`,
+    which mirrors the persisted-dataset convention of only ever hashing
+    rows that passed validation)."""
+    valid: list[dict] = []
+    invalid: list[dict] = []
+    for bar in bars:
+        reasons = _validate_one_bar(bar)
+        if reasons:
+            invalid.append({"bar": bar, "reasons": reasons})
+        else:
+            valid.append(bar)
+    return {"valid": valid, "invalid": invalid}
 
 
 _TIMEFRAME_SECONDS = {"H1": 3600, "H4": 4 * 3600, "D1": 24 * 3600}
@@ -417,6 +564,14 @@ def count_gaps(bars: Sequence[dict], timeframe: str) -> int:
     uses on the TypeScript side (`coverage.gaps.length`, see
     src/lib/marketData/coverage.ts). Never fills a gap, only counts it."""
     return len(list_gap_intervals(bars, timeframe))
+
+
+def now_iso_utc() -> str:
+    """Public wrapper around `_iso_ms_utc()` for callers (e.g.
+    `mt5_historical_discovery.py`) that need a "retrieved at" timestamp in
+    the SAME format as every bar timestamp this module produces, without
+    reaching into a private helper."""
+    return _iso_ms_utc(datetime.now(tz=timezone.utc).timestamp())
 
 
 def shutdown() -> None:

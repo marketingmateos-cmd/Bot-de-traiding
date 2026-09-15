@@ -418,7 +418,78 @@ per-gap breakdown on this broker's real data.
 
 **Before any bulk ingestion on this broker:** run §15 to get the full
 symbol list (grouped by this broker's own categories) and the confirmed
-gap classification for `US500`, then ingest only symbols the survey
-actually reports as present — one narrow range at a time via §14.3,
-verifying `rowCount`/`gapCount`/`quality`/`datasetHash` after each run
-before widening the range or adding another symbol.
+gap classification for `US500`, then run §17 (historical discovery) to
+find out how much history is actually available per symbol/timeframe,
+then ingest only symbols/ranges §17 confirms are practical — one narrow
+range at a time via §14.3, verifying `rowCount`/`gapCount`/`quality`/
+`datasetHash` after each run before widening the range or adding another
+symbol.
+
+## 17. Historical discovery — read-only, no database writes
+
+```
+python3 python\mt5_historical_discovery.py \
+    [--symbols BTCUSD,ETHUSD,US500,EURUSD,USDJPY] \
+    [--timeframes H1,H4,D1] \
+    [--max-rows 2000] \
+    [--json-out discovery-report.json]
+```
+
+Answers "how much usable history does this broker actually provide" for
+a set of symbol/timeframe pairs, WITHOUT downloading a symbol's entire
+history to find out and WITHOUT writing anything to the app's database —
+no `ResearchDataset` row is created by this script. That decision
+(whether a discovered range is worth ingesting) is made by a human
+reading this report; actual persistence still happens later, unchanged,
+via §12/§14.3 (`ingestMt5HistoricalData()` / `scripts/mt5-ingest-historical.mjs`).
+
+### How it finds the range without a bulk download
+
+For each pair, two SINGLE-ROW reads establish the full practical range:
+
+- `probe_earliest_bar()` — `mt5.copy_rates_from(symbol, tf, 1990-01-01, 1)`.
+  MT5 returns the first bar at-or-after the given date; since 1990
+  predates any real broker's history, this is genuinely the earliest bar
+  available, fetched as exactly one row.
+- `probe_latest_bar()` — `mt5.copy_rates_from_pos(symbol, tf, 0, 1)`, the
+  single most recent bar.
+
+Then a bounded VALIDATION SAMPLE — up to `--max-rows` (default 2000) most
+recent bars via `get_recent_bars()` (`copy_rates_from_pos(symbol, tf, 0,
+max_rows)`) — is what actually gets validated, hashed, and reported in
+detail (OHLC validity, duplicates, gap classification per §15). This
+sample is deliberately NOT the full range — expand `--max-rows` or move
+to a real ingestion (§12) only once the sample looks practical.
+
+### What gets computed on the sample
+
+- **OHLC validation** (`validate_ohlc_bars()`) — the exact same rules as
+  `candleValidation.ts`'s `validateOneCandle()`: open/high/low/close
+  finite and > 0, volume finite and >= 0, high >= low/open/close, low <=
+  open/close. Invalid bars are reported, never silently dropped from the
+  count.
+- **Duplicate count** and **gap count/classification** (§15) run over the
+  RAW sample — a diagnostic of what the broker actually returned, same
+  convention as §11/§15's scripts.
+- **SHA-256 hash** (`compute_dataset_hash()`) is computed over VALID bars
+  ONLY — mirroring what a real ingestion of this exact sample would
+  persist and hash, so the number reported here is directly comparable to
+  what §12 would later produce for the same range.
+- **`estimated_total_candles_full_range`** — `round(span / step) + 1`
+  over the full earliest→latest span from the two probes. An ESTIMATE
+  (assumes zero gaps), never an actual count — the true count is only
+  knowable by downloading the whole range, which this phase avoids.
+
+### Timezone handling (read before trusting a timestamp)
+
+Every timestamp is formatted via the SAME `_iso_ms_utc()` convention used
+everywhere else in `mt5_data_connector.py`: the raw MT5 epoch value is
+labeled `"Z"` (UTC) WITHOUT adjusting for the broker's actual server-time
+offset. MT5 terminals commonly run on a broker-specific server clock
+(often UTC+2/UTC+3, e.g. EET/EEST) that is not necessarily UTC, and the
+`MetaTrader5` Python package has no reliable, universal field for that
+offset to correct for automatically. Treat every timestamp from this
+script as **"broker server time, labeled UTC"** until the broker's real
+offset is confirmed separately (e.g. from the broker's own
+documentation) — this is documented explicitly here rather than silently
+assumed correct.
