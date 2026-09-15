@@ -279,3 +279,85 @@ connection test script.
   `setSymbolMapping()` call (same mechanism as MT5 Fase 2).
 - No resampling is implemented for the MT5 path — only H1/H4/D1 as MT5
   itself provides them natively.
+
+## 14. Running a REAL smoke test — on Windows, with a real MT5 DEMO terminal
+
+Everything in §1-13 above has only ever been exercised against fakes in
+this Linux sandbox. This section is for running it for real, on a Windows
+machine with MetaTrader 5 installed and a DEMO account.
+
+### 14.1 Precheck
+
+```
+python3 python\mt5_precheck.py
+```
+
+Checks — without connecting, logging in, or printing any secret — that:
+Windows is detected, Python is 3.8+, the `MetaTrader5` package imports,
+`mt5.initialize()` can reach a real terminal (never logs in, immediately
+shuts the connection back down), and `MT5_LOGIN`/`MT5_PASSWORD`/
+`MT5_SERVER` are present (read from `.env.local` if present). Prints
+exactly which check(s) are `[MISSING]`, including WHICH variable name(s)
+are absent — never their values. Exit code 0 only when every check
+passes.
+
+### 14.2 The real connection test
+
+```
+python3 python\mt5_connection_test.py
+```
+
+Before anything else, this checks `ENABLE_DEMO_EXECUTION` and aborts
+immediately (printing nothing else) if it's `"true"` — this smoke test
+stays READ-ONLY even against a genuine DEMO account. It then loads
+`.env.local`, connects, logs in, reads `account_info()`, and checks
+`ACCOUNT_TRADE_MODE` against `ACCOUNT_TRADE_MODE_DEMO` — aborting for any
+REAL or unrecognized mode, never accepting a server name or comment as a
+substitute. Symbol discovery tries `EURUSD`, `GBPUSD`, `USDJPY`, `XAUUSD`
+first, then the three indices (`US500`/`NAS100`/`DAX`) via the same
+broker-specific candidate list `mt5SymbolMapper.ts` uses (kept in sync,
+verified by a cross-language consistency test) — the first candidate that
+actually exists on the connected broker wins; nothing is ever invented.
+It downloads up to `--rows` (default 1000) H1 bars, validates OHLC,
+counts duplicates and gaps, computes the SHA-256, and disconnects.
+
+Expected output (values will differ per account/broker):
+
+```
+=== MT5 DEMO CONNECTION TEST (read-only) ===
+[MT5] Login: ••••••78
+[MT5] Server: MetaQuotes-Demo
+[MT5] Connecting to demo server
+[MT5] Account mode: DEMO (trade_mode=0)
+[MT5] Demo account verified
+[MT5] Server: MetaQuotes-Demo
+[MT5] Trade mode: 0 (ACCOUNT_TRADE_MODE_DEMO)
+[MT5] Balance: 10000.0 USD
+[MT5] Equity: 10000.0 USD
+[MT5] Broker: MetaQuotes Software Corp.
+[MT5] Symbol discovered: EURUSD (target: EURUSD)
+[MT5] Downloaded 1000 H1 bars
+[MT5] OHLC validation: 1000/1000 bars valid (0 invalid)
+[MT5] Duplicate count: 0
+[MT5] Gap count: 0
+[MT5] Date range: 2025-08-xx...Z -> 2025-09-xx...Z
+[MT5] Dataset hash: <64-char hex>
+[MT5] Connection test PASSED — read-only, no order was ever sent.
+```
+
+A non-zero exit code with a `[MT5] ...` line explaining exactly what
+failed (never a stack trace with a credential in it) means something in
+§14.1's checklist still needs fixing, the account isn't DEMO, or no
+candidate symbol exists on this broker.
+
+### 14.3 Ingestion for real (once §14.2 passes)
+
+```
+npx tsx scripts\mt5-ingest-historical.mjs --symbol EURUSD --timeframe H1 --start 2024-01-01 --end 2024-06-01
+```
+
+Same command as §12 — nothing about it changes for a real terminal, since
+`getMt5ExecutionAdapter()` is the one place a real `Mt5ClientLike` gets
+wired in (§2). Do **not** run this for a large date range on the first
+real attempt — start narrow, confirm the printed `rowCount`/`gapCount`/
+`datasetHash` look sane, then widen the range.

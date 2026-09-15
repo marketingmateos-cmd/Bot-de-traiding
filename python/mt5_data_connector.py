@@ -55,6 +55,16 @@ class Mt5NotDemoError(Exception):
     """THE inviolable safety check failure (spec section 2). Never includes account/balance/login details."""
 
 
+class Mt5ExecutionEnabledError(Exception):
+    """Raised when ENABLE_DEMO_EXECUTION=true (MT5 REAL DEMO smoke test phase, spec section 5).
+
+    Nothing in this module or its callers ever calls order_send/placeOrder
+    regardless of this flag — but the real-hardware smoke test scripts
+    refuse to even START if the kill switch is misconfigured to "true",
+    as an extra, explicit, defense-in-depth abort rather than relying
+    solely on "we just never call that function"."""
+
+
 @dataclass(frozen=True)
 class Mt5Config:
     login: int
@@ -84,6 +94,25 @@ def get_mt5_config() -> Mt5Config:
         raise Mt5ConfigError("MT5 configuration is incomplete") from None
 
     return Mt5Config(login=login, password=password, server=server)
+
+
+def assert_execution_disabled_or_raise() -> None:
+    """Mirrors the TypeScript side's `env.isDemoExecutionEnabledByEnv`
+    (src/lib/env.ts): same env var, same normalization (default "false",
+    trimmed, lower-cased, exact-match "true"). Every real-hardware
+    data-connector entry point (mt5_connection_test.py, and the ingestion
+    CLI's own check on the TypeScript side) calls this FIRST, before doing
+    anything else — including before reading MT5 credentials — so a
+    misconfigured ENABLE_DEMO_EXECUTION=true aborts immediately and
+    visibly rather than only being *incidentally* safe because this
+    read-only module never calls an execution function."""
+    enabled = os.environ.get("ENABLE_DEMO_EXECUTION", "false").strip().lower() == "true"
+    if enabled:
+        raise Mt5ExecutionEnabledError(
+            "ENABLE_DEMO_EXECUTION is true — refusing to run. This connector and its "
+            "scripts are READ-ONLY by design; set ENABLE_DEMO_EXECUTION=false (or unset it) "
+            "before running any MT5 data connector script."
+        )
 
 
 def _require_mt5_package() -> None:
@@ -167,6 +196,22 @@ def assert_demo_or_raise(account: Mt5AccountSummary) -> None:
         raise Mt5NotDemoError("Account is not a MetaTrader 5 DEMO account (ACCOUNT_TRADE_MODE != ACCOUNT_TRADE_MODE_DEMO).")
 
 
+# Mirrors DEFAULT_MT5_SYMBOL_CANDIDATES in src/lib/execution/mt5SymbolMapper.ts
+# EXACTLY for the three index entries (US500/NAS100/DAX) — kept in sync
+# deliberately (verified by a cross-language consistency test, same
+# pattern already used for compute_dataset_hash()), so the real-hardware
+# smoke test's "then try indices" step (spec section 3) tries the SAME
+# broker-specific name variants the rest of the app already knows about,
+# rather than a second, drifting list. Never assumes a generic index name
+# matches this broker — discover_symbol() below only ever confirms a
+# candidate against the LIVE terminal's own symbol_info().
+DEFAULT_INDEX_SYMBOL_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "US500": ("US500", "SPX500", "US500.cash", "SP500"),
+    "NAS100": ("NAS100", "USTEC", "NAS100.cash", "US100"),
+    "DAX": ("DAX", "GER40", "DE40", "GER30"),
+}
+
+
 def discover_symbol(candidates: Sequence[str]) -> Optional[str]:
     """Tries each candidate broker symbol name in order against the LIVE
     terminal's own `symbol_info()`. Returns the first that exists, or None
@@ -236,6 +281,48 @@ def get_historical_rates(symbol: str, timeframe: str, start: datetime, end: date
             }
         )
     return bars
+
+
+_TIMEFRAME_SECONDS = {"H1": 3600, "H4": 4 * 3600, "D1": 24 * 3600}
+
+
+def count_duplicates(bars: Sequence[dict]) -> int:
+    """Counts bars sharing an exact timestamp with an already-seen bar,
+    walking the (chronologically sorted) sequence — mirrors the concept
+    used by the TypeScript side's candle validator. Never de-duplicates
+    anything itself, only counts, purely for the smoke test's diagnostic
+    output (spec section 3)."""
+    seen: set[str] = set()
+    duplicates = 0
+    for b in sorted(bars, key=lambda b: b["timestamp"]):
+        ts = b["timestamp"]
+        if ts in seen:
+            duplicates += 1
+        else:
+            seen.add(ts)
+    return duplicates
+
+
+def count_gaps(bars: Sequence[dict], timeframe: str) -> int:
+    """Counts GAP INTERVALS (not individual missing candles) between
+    consecutive, chronologically sorted, de-duplicated timestamps, given
+    the timeframe's native spacing — one skipped stretch of missing bars
+    counts once, matching the convention `ResearchDataset.gapCount` already
+    uses on the TypeScript side (`coverage.gaps.length`, see
+    src/lib/marketData/coverage.ts). Never fills a gap, only counts it."""
+    if timeframe not in _TIMEFRAME_SECONDS:
+        raise ValueError(f"Unsupported timeframe: {timeframe!r} (supported: {tuple(_TIMEFRAME_SECONDS)})")
+    step = _TIMEFRAME_SECONDS[timeframe]
+    ordered = sorted({b["timestamp"] for b in bars})
+    gaps = 0
+    for prev_ts, curr_ts in zip(ordered, ordered[1:]):
+        prev_dt = datetime.strptime(prev_ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+        curr_dt = datetime.strptime(curr_ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+        delta_seconds = (curr_dt - prev_dt).total_seconds()
+        missing = round(delta_seconds / step) - 1
+        if missing > 0:
+            gaps += 1
+    return gaps
 
 
 def shutdown() -> None:
