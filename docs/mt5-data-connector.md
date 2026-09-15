@@ -361,3 +361,64 @@ Same command as §12 — nothing about it changes for a real terminal, since
 wired in (§2). Do **not** run this for a large date range on the first
 real attempt — start narrow, confirm the printed `rowCount`/`gapCount`/
 `datasetHash` look sane, then widen the range.
+
+## 15. Broker symbol survey and gap classification (read-only)
+
+Once §14.2 passes, run the survey before ingesting anything, to see what
+this specific broker actually exposes — never assume EURUSD, XAUUSD, or
+any other "standard" name exists (§6):
+
+```
+python3 python\mt5_symbol_survey.py [--symbol US500] [--timeframe H1] [--rows 1000] [--limit 40]
+```
+
+Like the connection test, it checks `ENABLE_DEMO_EXECUTION` first and
+aborts if `"true"`. It then:
+
+1. Calls `mt5.symbols_get()` — a pure metadata read, never
+   `symbol_select()` (which would change Market Watch visibility) — and
+   groups every returned symbol by the **broker's own** `path` metadata
+   (e.g. `"Forex\Majors\EURUSD"`, `"Indices\US500"`), never by
+   pattern-matching the name. A symbol with no `path` lands in
+   `"Unclassified"`.
+2. Runs the same symbol discovery order as the connection test
+   (EURUSD/GBPUSD/USDJPY/XAUUSD, then US500/NAS100/DAX), downloads up to
+   `--rows` bars (diagnostic scale, same cap as §14.2 — **not** a bulk
+   import), and for every detected gap prints its `after`/`before`
+   boundaries, `missing` candle count, and a best-effort
+   `classify_gap()` label:
+   - `weekend_close` — starts Friday afternoon/evening (or on the
+     weekend) and ends Sunday/Monday — the ordinary weekly closure.
+   - `daily_session_break` — a short gap (≤3h) on any other day — the
+     common nightly quote-rollover pause many brokers apply to CFD/index
+     symbols.
+   - `unclassified` — matches neither pattern; MT5's per-symbol
+     `session_*` fields (not read here) would resolve it precisely — treat
+     it as "needs a manual look," never as a confirmed anomaly on its own.
+
+This is a heuristic aid, not ground truth — cross-check any
+`unclassified` gap against the broker's own published session calendar
+before treating it as a real data problem.
+
+## 16. Real broker results (MEX Atlantic Corporation, 2026-09-15) and next steps
+
+A real smoke test (§14.2) against a genuine MEX Atlantic Corporation DEMO
+account confirmed the architecture end to end: DEMO verified
+(`trade_mode=0`), 701 real H1 bars for `US500`, 701/701 valid OHLC, 0
+duplicates, 30 gaps, hash `c836cf9685470a0b0d7c81ecb4f4c9bca430ca96c0e65896be72abaaa34d3528`,
+no order ever sent. None of the default Forex/metal candidates
+(EURUSD/GBPUSD/USDJPY/XAUUSD/GOLD) were found on this broker under those
+exact names — confirming §6's "never assume a standard name matches this
+broker" is not a theoretical concern here. A synthetic reconstruction
+(6 weekly closures + one ~1h daily rollover gap per trading day over the
+same 6-week span) independently reproduces exactly 30 gaps split as 6
+`weekend_close` + 24 `daily_session_break` — consistent with ordinary
+market structure, not an anomaly, pending confirmation from §15's actual
+per-gap breakdown on this broker's real data.
+
+**Before any bulk ingestion on this broker:** run §15 to get the full
+symbol list (grouped by this broker's own categories) and the confirmed
+gap classification for `US500`, then ingest only symbols the survey
+actually reports as present — one narrow range at a time via §14.3,
+verifying `rowCount`/`gapCount`/`quality`/`datasetHash` after each run
+before widening the range or adding another symbol.

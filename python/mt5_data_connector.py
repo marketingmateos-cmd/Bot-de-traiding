@@ -224,6 +224,51 @@ def discover_symbol(candidates: Sequence[str]) -> Optional[str]:
     return None
 
 
+def list_all_symbols() -> list[dict]:
+    """READ-ONLY full symbol listing (MT5 REAL DEMO — broker survey phase,
+    spec section 2-4). Calls `mt5.symbols_get()` — a pure metadata read
+    that never subscribes/enables a symbol for trading and never changes
+    Market Watch state (unlike `mt5.symbol_select`, which this module
+    never calls). Returns broker-reported fields verbatim, never a guess:
+    `path` is the broker's OWN category grouping (e.g.
+    "Forex\\Majors\\EURUSD", "Indices\\US500") — using it (see
+    `categorize_symbols` below) means symbols are grouped by what the
+    broker itself says they are, never by pattern-matching a name."""
+    _require_mt5_package()
+    symbols = mt5.symbols_get()
+    if symbols is None:
+        code, description = mt5.last_error()
+        raise Mt5ConnectionError(f"symbols_get() failed: [{code}] {description}")
+    return [
+        {
+            "name": s.name,
+            "path": s.path,
+            "description": s.description,
+            "currency_base": s.currency_base,
+            "currency_profit": s.currency_profit,
+            "visible": bool(s.visible),
+        }
+        for s in symbols
+    ]
+
+
+def categorize_symbols(symbols: Sequence[dict]) -> dict[str, list[str]]:
+    """Groups symbol names by the FIRST segment of the broker's own `path`
+    (e.g. "Forex\\Majors\\EURUSD" -> group "Forex"), falling back to
+    "Unclassified" when a symbol has no path. Never infers a category from
+    the symbol's NAME — only from metadata the broker itself reports,
+    since standard-looking names (EURUSD, XAUUSD) are never assumed to
+    mean what they usually mean on a specific broker (spec section 4)."""
+    groups: dict[str, list[str]] = {}
+    for s in symbols:
+        path = (s.get("path") or "").strip()
+        group = path.split("\\")[0] if path else "Unclassified"
+        groups.setdefault(group, []).append(s["name"])
+    for names in groups.values():
+        names.sort()
+    return groups
+
+
 _SUPPORTED_TIMEFRAMES = ("H1", "H4", "D1")
 
 
@@ -303,6 +348,67 @@ def count_duplicates(bars: Sequence[dict]) -> int:
     return duplicates
 
 
+def classify_gap(after_iso: str, before_iso: str) -> str:
+    """Best-effort classification of a gap between two consecutive bars,
+    for human review (MT5 REAL DEMO — broker survey phase, spec section 5:
+    "determina si son huecos esperables por horario/cierre del mercado o
+    anomalías"). This is a HEURISTIC, not a certainty — exact session
+    hours are broker- and instrument-specific, and this function has no
+    access to the broker's real trading-hours schedule (MT5 exposes that
+    per-symbol via `symbol_info().session_*`, which this read-only survey
+    does not call). Treat "unclassified" as "needs a human look", never
+    as "confirmed anomaly".
+
+    - "weekend_close": the gap starts Friday afternoon/evening (or on the
+      weekend itself) and ends Sunday or Monday — the ordinary weekly
+      market closure.
+    - "daily_session_break": a short gap (<=3 hours) that isn't a weekend
+      closure — the common nightly quote-rollover/settlement pause many
+      brokers apply to CFD/index quoting.
+    - "unclassified": matches neither pattern — could be a real data gap,
+      a longer maintenance window, or a holiday closure; worth a manual
+      check against the broker's own session calendar.
+    """
+    after_dt = datetime.strptime(after_iso, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+    before_dt = datetime.strptime(before_iso, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+    duration_hours = (before_dt - after_dt).total_seconds() / 3600
+
+    after_weekday = after_dt.weekday()  # Monday=0 ... Sunday=6
+    before_weekday = before_dt.weekday()
+
+    starts_weekend = (after_weekday == 4 and after_dt.hour >= 12) or after_weekday in (5, 6)
+    ends_after_weekend = before_weekday in (6, 0)  # Sunday or Monday
+    if starts_weekend and ends_after_weekend and duration_hours >= 12:
+        return "weekend_close"
+
+    if duration_hours <= 3:
+        return "daily_session_break"
+
+    return "unclassified"
+
+
+def list_gap_intervals(bars: Sequence[dict], timeframe: str) -> list[dict]:
+    """Same gap detection as `count_gaps()`, but returns each interval's
+    boundaries, missing-candle count, and a best-effort `classify_gap()`
+    label instead of only a total — so a human can see WHICH gaps are
+    ordinary market structure vs worth a closer look. Never fills a gap,
+    never invents a classification beyond the heuristic documented on
+    `classify_gap()`."""
+    if timeframe not in _TIMEFRAME_SECONDS:
+        raise ValueError(f"Unsupported timeframe: {timeframe!r} (supported: {tuple(_TIMEFRAME_SECONDS)})")
+    step = _TIMEFRAME_SECONDS[timeframe]
+    ordered = sorted({b["timestamp"] for b in bars})
+    intervals = []
+    for prev_ts, curr_ts in zip(ordered, ordered[1:]):
+        prev_dt = datetime.strptime(prev_ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+        curr_dt = datetime.strptime(curr_ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+        delta_seconds = (curr_dt - prev_dt).total_seconds()
+        missing = round(delta_seconds / step) - 1
+        if missing > 0:
+            intervals.append({"after": prev_ts, "before": curr_ts, "missing": missing, "classification": classify_gap(prev_ts, curr_ts)})
+    return intervals
+
+
 def count_gaps(bars: Sequence[dict], timeframe: str) -> int:
     """Counts GAP INTERVALS (not individual missing candles) between
     consecutive, chronologically sorted, de-duplicated timestamps, given
@@ -310,19 +416,7 @@ def count_gaps(bars: Sequence[dict], timeframe: str) -> int:
     counts once, matching the convention `ResearchDataset.gapCount` already
     uses on the TypeScript side (`coverage.gaps.length`, see
     src/lib/marketData/coverage.ts). Never fills a gap, only counts it."""
-    if timeframe not in _TIMEFRAME_SECONDS:
-        raise ValueError(f"Unsupported timeframe: {timeframe!r} (supported: {tuple(_TIMEFRAME_SECONDS)})")
-    step = _TIMEFRAME_SECONDS[timeframe]
-    ordered = sorted({b["timestamp"] for b in bars})
-    gaps = 0
-    for prev_ts, curr_ts in zip(ordered, ordered[1:]):
-        prev_dt = datetime.strptime(prev_ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
-        curr_dt = datetime.strptime(curr_ts, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
-        delta_seconds = (curr_dt - prev_dt).total_seconds()
-        missing = round(delta_seconds / step) - 1
-        if missing > 0:
-            gaps += 1
-    return gaps
+    return len(list_gap_intervals(bars, timeframe))
 
 
 def shutdown() -> None:

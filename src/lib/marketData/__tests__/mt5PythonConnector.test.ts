@@ -8,6 +8,7 @@ const PYTHON_DIR = "python";
 const CONNECTOR_FILE = `${PYTHON_DIR}/mt5_data_connector.py`;
 const TEST_SCRIPT_FILE = `${PYTHON_DIR}/mt5_connection_test.py`;
 const PRECHECK_FILE = `${PYTHON_DIR}/mt5_precheck.py`;
+const SURVEY_FILE = `${PYTHON_DIR}/mt5_symbol_survey.py`;
 
 function hasPython3(): boolean {
   try {
@@ -44,6 +45,7 @@ describe("MT5 Data Connector — Python module structural safety (spec section 5
     expect(source).not.toMatch(/mt5\.order_check\(/);
     expect(source).not.toMatch(/mt5\.order_calc_margin\(/);
     expect(source).not.toMatch(/mt5\.order_calc_profit\(/);
+    expect(source).not.toMatch(/mt5\.symbol_select\(/);
     // Sanity: the pattern actually exists in prose, so a too-loose regex above isn't just vacuously passing.
     expect(source).toMatch(/order_send/);
   });
@@ -65,8 +67,20 @@ describe("MT5 Data Connector — Python module structural safety (spec section 5
     expect(source).not.toMatch(/order_send/);
   });
 
+  it("mt5_symbol_survey.py never calls order_send/positions_get/position_close/symbol_select — read-only, never touches Market Watch state (MT5 REAL DEMO broker survey phase)", () => {
+    expect(existsSync(SURVEY_FILE)).toBe(true);
+    const source = readFileSync(SURVEY_FILE, "utf8");
+    expect(source).not.toMatch(/order_send/);
+    expect(source).not.toMatch(/positions_get/);
+    expect(source).not.toMatch(/position_close/);
+    // A real CALL would be `mt5.symbol_select(...)` — the doc comment only
+    // ever mentions the bare name in prose, never followed by "(".
+    expect(source).not.toMatch(/symbol_select\(/);
+    expect(source).toMatch(/symbol_select/); // sanity: the prose mention exists
+  });
+
   it("neither Python file ever prints MT5_PASSWORD or a raw password variable", () => {
-    for (const file of [CONNECTOR_FILE, TEST_SCRIPT_FILE, PRECHECK_FILE]) {
+    for (const file of [CONNECTOR_FILE, TEST_SCRIPT_FILE, PRECHECK_FILE, SURVEY_FILE]) {
       const source = readFileSync(file, "utf8");
       expect(source).not.toMatch(/print\([^)]*password/i);
     }
@@ -209,6 +223,107 @@ describe.skipIf(!hasPython3())("MT5 REAL DEMO SMOKE TEST — execution kill swit
     });
     expect(exitCode).toBe(1);
     expect(output).toMatch(/MT5 configuration is incomplete/);
+  });
+});
+
+describe.skipIf(!hasPython3())("MT5 REAL DEMO — broker survey: categorize_symbols() and classify_gap()/list_gap_intervals() (spec sections 2-5)", () => {
+  it("categorize_symbols() groups by the FIRST segment of the broker's own path, falling back to Unclassified for an empty path — never guesses from the symbol name", () => {
+    const pyScript = `
+import sys, json
+sys.path.insert(0, "${PYTHON_DIR}")
+import mt5_data_connector as c
+symbols = [
+  {"name": "EURUSD", "path": "Forex\\\\Majors\\\\EURUSD"},
+  {"name": "US500", "path": "Indices\\\\US500"},
+  {"name": "XAUUSD", "path": "Metals\\\\XAUUSD"},
+  {"name": "WEIRD1", "path": ""},
+]
+print(json.dumps(c.categorize_symbols(symbols)))
+`.trim();
+    const output = execSync(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`, { cwd: process.cwd() }).toString().trim();
+    expect(JSON.parse(output)).toEqual({
+      Forex: ["EURUSD"],
+      Indices: ["US500"],
+      Metals: ["XAUUSD"],
+      Unclassified: ["WEIRD1"],
+    });
+  });
+
+  it("classify_gap() labels a Friday-evening-to-Monday gap as weekend_close", () => {
+    const output = execSync(
+      `python3 -c 'import sys; sys.path.insert(0, "${PYTHON_DIR}"); import mt5_data_connector as c; print(c.classify_gap("2026-08-07T21:00:00.000Z", "2026-08-10T00:00:00.000Z"))'`,
+      { cwd: process.cwd() }
+    )
+      .toString()
+      .trim();
+    expect(output).toBe("weekend_close");
+  });
+
+  it("classify_gap() labels a short 1-hour midweek gap as daily_session_break", () => {
+    const output = execSync(
+      `python3 -c 'import sys; sys.path.insert(0, "${PYTHON_DIR}"); import mt5_data_connector as c; print(c.classify_gap("2026-08-05T23:00:00.000Z", "2026-08-06T01:00:00.000Z"))'`,
+      { cwd: process.cwd() }
+    )
+      .toString()
+      .trim();
+    expect(output).toBe("daily_session_break");
+  });
+
+  it("classify_gap() labels a long midweek gap (neither weekend nor short) as unclassified — flagged for a human look, never silently explained away", () => {
+    const output = execSync(
+      `python3 -c 'import sys; sys.path.insert(0, "${PYTHON_DIR}"); import mt5_data_connector as c; print(c.classify_gap("2026-08-05T10:00:00.000Z", "2026-08-06T14:00:00.000Z"))'`,
+      { cwd: process.cwd() }
+    )
+      .toString()
+      .trim();
+    expect(output).toBe("unclassified");
+  });
+
+  it("list_gap_intervals() count matches count_gaps(), and each interval carries a classification", () => {
+    const pyScript = `
+import sys, json
+sys.path.insert(0, "${PYTHON_DIR}")
+import mt5_data_connector as c
+bars = [
+  {"timestamp": "2026-08-03T00:00:00.000Z"},
+  {"timestamp": "2026-08-03T01:00:00.000Z"},
+  {"timestamp": "2026-08-03T04:00:00.000Z"},
+]
+gaps = c.list_gap_intervals(bars, "H1")
+assert len(gaps) == c.count_gaps(bars, "H1")
+print(json.dumps(gaps))
+`.trim();
+    const output = execSync(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`, { cwd: process.cwd() }).toString().trim();
+    const gaps = JSON.parse(output);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0].missing).toBe(2);
+    expect(gaps[0].classification).toBe("daily_session_break");
+  });
+
+  it("a synthetic 6-week, 5-days-a-week H1 series with one daily rollover gap produces exactly 6 weekend_close + N daily_session_break gaps — matches the real broker survey's own math", () => {
+    const pyScript = `
+import sys, json
+sys.path.insert(0, "${PYTHON_DIR}")
+import mt5_data_connector as c
+from datetime import datetime, timedelta, timezone
+bars = []
+t = datetime(2026, 8, 3, 0, 0, tzinfo=timezone.utc)  # Monday
+end = datetime(2026, 9, 14, 23, 0, tzinfo=timezone.utc)
+while t <= end:
+    if t.weekday() < 5 and t.hour != 23:
+        bars.append({"timestamp": t.strftime("%Y-%m-%dT%H:%M:%S.000Z")})
+    t += timedelta(hours=1)
+gaps = c.list_gap_intervals(bars, "H1")
+tally = {}
+for g in gaps:
+    tally[g["classification"]] = tally.get(g["classification"], 0) + 1
+print(json.dumps({"total": len(gaps), "tally": tally}))
+`.trim();
+    const output = execSync(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`, { cwd: process.cwd() }).toString().trim();
+    const result = JSON.parse(output);
+    expect(result.tally.weekend_close).toBe(6);
+    expect(result.tally.unclassified ?? 0).toBe(0);
+    expect(result.total).toBe(result.tally.weekend_close + result.tally.daily_session_break);
   });
 });
 
