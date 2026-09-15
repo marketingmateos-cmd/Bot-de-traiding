@@ -271,6 +271,61 @@ def categorize_symbols(symbols: Sequence[dict]) -> dict[str, list[str]]:
     return groups
 
 
+def resolve_canonical_symbol(root: str, all_symbols: Sequence[dict]) -> dict:
+    """MT5 SYMBOL RESOLUTION (read-only) — resolves a canonical instrument
+    root (e.g. "EURUSD") to THIS broker's actual native symbol name, using
+    only the LIVE symbol list's own `name`/`path` fields (from
+    `list_all_symbols()`) — never a hardcoded per-broker suffix/prefix
+    guess. A broker's canonical DISPLAY name (what its own UI shows) can
+    still differ from the exact API `name` MT5 reports (a decorated
+    variant like "EURUSD.pro"/"EURUSDm"/"EURUSD_i"), which is exactly why
+    `discover_symbol([root])` — an EXACT match only — can legitimately
+    report SYMBOL_NOT_FOUND even when the instrument is genuinely
+    available under a decorated name.
+
+    Matching tiers, in order (first non-empty tier wins, deterministic):
+      1. EXACT name match (case-insensitive).
+      2. name STARTS WITH root — the dominant broker convention for a
+         suffixed variant (EURUSD.pro, EURUSDm, EURUSD_i, ...).
+      3. root is a SUBSTRING of name — a last-resort fallback for a
+         prefixed or otherwise decorated name (e.g. "#EURUSD").
+    Within the winning tier, candidates are sorted by (name length, name)
+    for a stable, reproducible pick — and EVERY candidate at that tier is
+    reported (not just the winner), so an ambiguous broker naming scheme
+    stays visible instead of being silently resolved one way. The
+    resolved symbol's own `path` is carried through too, so the result
+    can be audited against the broker's own category metadata rather
+    than trusted blindly on name alone.
+    """
+    root_upper = root.upper()
+
+    def _tier_candidates() -> tuple[Optional[str], list[dict]]:
+        exact = [s for s in all_symbols if s["name"].upper() == root_upper]
+        if exact:
+            return "exact", exact
+        starts = sorted((s for s in all_symbols if s["name"].upper().startswith(root_upper)), key=lambda s: (len(s["name"]), s["name"]))
+        if starts:
+            return "startswith", starts
+        contains = sorted((s for s in all_symbols if root_upper in s["name"].upper()), key=lambda s: (len(s["name"]), s["name"]))
+        if contains:
+            return "contains", contains
+        return None, []
+
+    tier, candidates = _tier_candidates()
+    if not candidates:
+        return {"root": root, "resolved": None, "mt5_symbol": None, "tier": None, "path": None, "candidates": []}
+
+    winner = candidates[0]
+    return {
+        "root": root,
+        "resolved": winner["name"],
+        "mt5_symbol": winner["name"],
+        "tier": tier,
+        "path": winner.get("path"),
+        "candidates": [{"name": c["name"], "path": c.get("path")} for c in candidates],
+    }
+
+
 _SUPPORTED_TIMEFRAMES = ("H1", "H4", "D1")
 
 
@@ -495,7 +550,7 @@ def count_duplicates(bars: Sequence[dict]) -> int:
     return duplicates
 
 
-def classify_gap(after_iso: str, before_iso: str) -> str:
+def classify_gap(after_iso: str, before_iso: str, timeframe: str = "H1") -> str:
     """Best-effort classification of a gap between two consecutive bars,
     for human review (MT5 REAL DEMO — broker survey phase, spec section 5:
     "determina si son huecos esperables por horario/cierre del mercado o
@@ -506,15 +561,25 @@ def classify_gap(after_iso: str, before_iso: str) -> str:
     does not call). Treat "unclassified" as "needs a human look", never
     as "confirmed anomaly".
 
-    - "weekend_close": the gap starts Friday afternoon/evening (or on the
-      weekend itself) and ends Sunday or Monday — the ordinary weekly
-      market closure.
+    - "weekend_close": the gap starts Friday (or the weekend itself) and
+      ends Sunday or Monday — the ordinary weekly market closure.
     - "daily_session_break": a short gap (<=3 hours) that isn't a weekend
       closure — the common nightly quote-rollover/settlement pause many
       brokers apply to CFD/index quoting.
     - "unclassified": matches neither pattern — could be a real data gap,
       a longer maintenance window, or a holiday closure; worth a manual
       check against the broker's own session calendar.
+
+    `timeframe` matters for the Friday boundary specifically: H1/H4 bars
+    carry a real hour-of-day, so a Friday gap is only treated as the
+    weekly close once it starts in the afternoon/evening (`hour >= 12`) —
+    an early-Friday gap of that shape would be unusual and stays
+    "unclassified" for a human look. D1 bars, by construction, are always
+    stamped at hour 00:00 — requiring `hour >= 12` there would silently
+    reject EVERY ordinary weekly closure a D1 series has (a real bug this
+    fixes: it mislabeled the routine Friday->Monday weekly gap that
+    appears once a week, every week, in D1 data as "unclassified"), so for
+    D1 the Friday boundary is accepted regardless of hour.
     """
     after_dt = datetime.strptime(after_iso, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
     before_dt = datetime.strptime(before_iso, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
@@ -523,7 +588,8 @@ def classify_gap(after_iso: str, before_iso: str) -> str:
     after_weekday = after_dt.weekday()  # Monday=0 ... Sunday=6
     before_weekday = before_dt.weekday()
 
-    starts_weekend = (after_weekday == 4 and after_dt.hour >= 12) or after_weekday in (5, 6)
+    friday_boundary_ok = after_weekday == 4 and (timeframe == "D1" or after_dt.hour >= 12)
+    starts_weekend = friday_boundary_ok or after_weekday in (5, 6)
     ends_after_weekend = before_weekday in (6, 0)  # Sunday or Monday
     if starts_weekend and ends_after_weekend and duration_hours >= 12:
         return "weekend_close"
@@ -552,7 +618,7 @@ def list_gap_intervals(bars: Sequence[dict], timeframe: str) -> list[dict]:
         delta_seconds = (curr_dt - prev_dt).total_seconds()
         missing = round(delta_seconds / step) - 1
         if missing > 0:
-            intervals.append({"after": prev_ts, "before": curr_ts, "missing": missing, "classification": classify_gap(prev_ts, curr_ts)})
+            intervals.append({"after": prev_ts, "before": curr_ts, "missing": missing, "classification": classify_gap(prev_ts, curr_ts, timeframe)})
     return intervals
 
 

@@ -493,3 +493,104 @@ script as **"broker server time, labeled UTC"** until the broker's real
 offset is confirmed separately (e.g. from the broker's own
 documentation) — this is documented explicitly here rather than silently
 assumed correct.
+
+## 18. Symbol resolution — read-only, no database writes
+
+A real §17 run on MEX Atlantic Corporation returned `SYMBOL_NOT_FOUND`
+for `EURUSD`/`USDJPY` even though the broker survey (§15) confirmed 43
+FX symbols under a `"FX MB Pro"` category — because `discover_symbol()`
+only ever tries EXACT name matches, and this broker decorates its FX
+names (e.g. `EURUSDm`, `EURUSD.pro`). This section resolves the ACTUAL
+native name using the broker's own live symbol list, never a hardcoded
+suffix guess:
+
+```
+python3 python\mt5_symbol_resolution.py \
+    [--roots EURUSD,USDJPY,XAUUSD] \
+    [--timeframes H1,H4,D1] \
+    [--max-rows 500] \
+    [--json-out resolution-report.json]
+```
+
+### How resolution works (`resolve_canonical_symbol()`)
+
+Given a canonical root (e.g. `"EURUSD"`) and the LIVE `list_all_symbols()`
+output, tries three tiers in order — first non-empty tier wins:
+
+1. **exact** — `name == root` (case-insensitive).
+2. **startswith** — `name.startswith(root)`, the dominant broker
+   convention for a suffixed variant (`EURUSDm`, `EURUSD.pro`,
+   `EURUSD_i`).
+3. **contains** — `root in name`, a last-resort fallback for a prefixed
+   name (`#EURUSD`).
+
+Every candidate at the winning tier is reported (not just the pick), so
+an ambiguous broker naming scheme stays visible; the tie-break (shortest
+name, then alphabetical) is deterministic — same broker, same result,
+every run. `XAUUSD` is additionally tried under the `GOLD` alternate
+spelling (same candidate convention as `DEFAULT_MT5_SYMBOL_CANDIDATES`
+elsewhere in this connector) if `XAUUSD` itself isn't found.
+
+Once resolved, each symbol gets the SAME small H1/H4/D1 validation as
+§17 (`discover_symbol_timeframe()`, reused — not duplicated): earliest/
+latest practical range, a bounded recent sample (default 500 bars, per
+spec — smaller than §17's default, since this is meant to be a quick
+confirmation, not a survey), OHLC validity, duplicates, classified gaps,
+and a deterministic SHA-256 hash. No `ResearchDataset` row is created.
+
+## 19. Gap-classification bug found and fixed while investigating real results
+
+Investigating the real §17 output (BTC/ETH D1 showing 254 `unclassified`
+gaps, when the whole point of `classify_gap()` was to explain routine
+weekly closures) surfaced a genuine bug in `classify_gap()`:
+
+**The bug:** the `weekend_close` check required the gap to start on
+Friday with `hour >= 12` (an evening close). D1 bars are, by
+construction, ALWAYS timestamped at `00:00` — so that condition could
+**never** be true for a D1-timeframe gap, no matter how routine the
+weekly closure actually was. Every single weekly gap in a D1 series was
+therefore silently mislabeled `unclassified`.
+
+**Confirming the math:** BTC/ETH D1 spans roughly 5.7 years
+(2020-12-16 → 2026-09-15) sampled at up to 2000 bars (≈285 weeks) — one
+weekly closure per week is entirely consistent with the observed 254
+`unclassified` gaps. This is the routine weekend closure this broker's
+BTC/ETH CFD feed applies (a CFD price feed, not the always-on spot
+market), not a genuine data problem.
+
+**The fix:** `classify_gap()` now takes an explicit `timeframe` argument
+(default `"H1"`, so no existing H1/H4 caller's behavior changes). For
+`timeframe="D1"`, the Friday boundary no longer requires `hour >= 12` —
+any Friday "after" bar is eligible to start a `weekend_close` gap,
+since D1 has no finer within-day timing to check in the first place. For
+`H1`/`H4`, the hour-gated check is unchanged (an early-Friday gap of that
+shape is genuinely unusual there and correctly stays `unclassified`).
+Verified with a synthetic 20-week Mon-Fri D1 series: 100% of its weekly
+gaps now classify as `weekend_close`, 0% `unclassified` (was the reverse
+before the fix).
+
+### US500 H1/H4/D1 session gaps and the two H1 `unclassified` gaps
+
+US500's H1/H4/D1 gaps are, for the most part, the SAME two-part market
+structure explained in §16 for the initial smoke test: a weekly
+`weekend_close` (the cash index is closed Saturday/most of Sunday) plus a
+short nightly `daily_session_break` (the routine settlement/rollover
+pause many CFD providers apply to index quoting once per trading day).
+The **two H1 `unclassified` gaps** are, by definition, ones that matched
+neither pattern — `classify_gap()` deliberately does not guess further
+than that. The most likely real-world explanations, in rough order of
+likelihood, are: a public holiday shortening or extending that day's
+session in a way the weekly/daily heuristic doesn't model; a
+daylight-saving-time transition shifting the broker's server-time
+session boundary by an hour for one day; or a genuinely longer
+maintenance window on this broker's feed. This report does **not**
+speculate further or invent a fourth classification tier without
+broker-confirmed session hours — re-run §17/§18 and inspect those two
+gaps' exact `after`/`before` timestamps (via `--json-out`) against the
+calendar to tell which of these it is; MT5's own `symbol_info().session_*`
+fields (not read by this connector) would resolve it definitively if
+needed.
+
+**Nothing was filled or interpolated** in any of this — every gap number
+above comes from `list_gap_intervals()` counting real missing candles,
+never fabricating one.

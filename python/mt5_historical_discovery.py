@@ -74,25 +74,32 @@ def _mask_login(login: int) -> str:
     return "•" * (len(s) - 2) + s[-2:]
 
 
-def _discover_one(symbol: str, timeframe: str, max_rows: int) -> dict:
-    """READ-ONLY discovery for a single (symbol, timeframe) pair. Never
-    raises for "symbol not found" or "no history" — those are reported as
-    a `status` field instead, so one bad pair never aborts the whole run."""
-    found_symbol = mt5c.discover_symbol([symbol])
-    if found_symbol is None:
-        return {"symbol": symbol, "timeframe": timeframe, "status": "SYMBOL_NOT_FOUND"}
+def discover_symbol_timeframe(mt5_symbol: str, timeframe: str, max_rows: int, display_symbol: Optional[str] = None) -> dict:
+    """READ-ONLY discovery/validation for a single, ALREADY-RESOLVED
+    broker-native symbol + timeframe pair. Public and reusable — e.g. by
+    `mt5_symbol_resolution.py`, which resolves a canonical name (EURUSD)
+    to this broker's real native symbol FIRST (via
+    `mt5_data_connector.resolve_canonical_symbol`, never by retrying
+    `discover_symbol([canonical_name])`, which would just repeat the
+    original SYMBOL_NOT_FOUND) and then calls this function with that
+    resolved name. `display_symbol` is the canonical/report-facing name
+    (defaults to `mt5_symbol` itself when not given). Never raises for
+    "no history" — reported as a `status` field instead, so one bad pair
+    never aborts a multi-pair run."""
+    symbol = display_symbol if display_symbol is not None else mt5_symbol
 
-    earliest = mt5c.probe_earliest_bar(found_symbol, timeframe)
-    latest = mt5c.probe_latest_bar(found_symbol, timeframe)
+    earliest = mt5c.probe_earliest_bar(mt5_symbol, timeframe)
+    latest = mt5c.probe_latest_bar(mt5_symbol, timeframe)
     if earliest is None or latest is None:
-        return {"symbol": symbol, "timeframe": timeframe, "status": "NO_HISTORY_AVAILABLE"}
+        return {"symbol": symbol, "mt5_symbol": mt5_symbol, "timeframe": timeframe, "status": "NO_HISTORY_AVAILABLE"}
 
     estimated_total = mt5c.estimate_expected_candle_count(earliest["timestamp"], latest["timestamp"], timeframe)
 
-    sample = mt5c.get_recent_bars(found_symbol, timeframe, max_rows)
+    sample = mt5c.get_recent_bars(mt5_symbol, timeframe, max_rows)
     if not sample:
         return {
             "symbol": symbol,
+            "mt5_symbol": mt5_symbol,
             "timeframe": timeframe,
             "status": "PROBE_OK_BUT_SAMPLE_EMPTY",
             "earliest_available": earliest["timestamp"],
@@ -124,7 +131,7 @@ def _discover_one(symbol: str, timeframe: str, max_rows: int) -> dict:
 
     return {
         "symbol": symbol,
-        "mt5_symbol": found_symbol,
+        "mt5_symbol": mt5_symbol,
         "timeframe": timeframe,
         "status": "OK",
         "earliest_available": earliest["timestamp"],
@@ -143,6 +150,18 @@ def _discover_one(symbol: str, timeframe: str, max_rows: int) -> dict:
         "dataset_hash": dataset_hash,
         "source": "mt5_demo",
     }
+
+
+def _discover_one(symbol: str, timeframe: str, max_rows: int) -> dict:
+    """READ-ONLY discovery for a single EdgeLab/candidate-name (symbol,
+    timeframe) pair — resolves the broker-native name via
+    `discover_symbol()`'s candidate-list mechanism FIRST, then delegates
+    the actual probe/sample/validate work to `discover_symbol_timeframe()`.
+    Never raises for "symbol not found" — reported as a `status` field."""
+    found_symbol = mt5c.discover_symbol([symbol])
+    if found_symbol is None:
+        return {"symbol": symbol, "timeframe": timeframe, "status": "SYMBOL_NOT_FOUND"}
+    return discover_symbol_timeframe(found_symbol, timeframe, max_rows, display_symbol=symbol)
 
 
 def main() -> int:

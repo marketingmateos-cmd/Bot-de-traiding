@@ -289,6 +289,48 @@ print(json.dumps(c.categorize_symbols(symbols)))
     expect(output).toBe("unclassified");
   });
 
+  it("regression: classify_gap() with timeframe='D1' labels the ordinary Friday(00:00)->Monday(00:00) weekly closure as weekend_close — it used to wrongly require hour>=12, which a D1 bar (always stamped at 00:00) can never satisfy, silently mislabeling EVERY weekly gap in daily data as unclassified", () => {
+    const pyScript = `
+import sys, json
+sys.path.insert(0, "${PYTHON_DIR}")
+import mt5_data_connector as c
+print(json.dumps({
+  "d1_weekly": c.classify_gap("2026-08-07T00:00:00.000Z", "2026-08-10T00:00:00.000Z", "D1"),
+  "h1_default_still_h1": c.classify_gap("2026-08-05T10:00:00.000Z", "2026-08-06T14:00:00.000Z"),
+}))
+`.trim();
+    const output = execSync(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`, { cwd: process.cwd() }).toString().trim();
+    const result = JSON.parse(output);
+    expect(result.d1_weekly).toBe("weekend_close");
+    expect(result.h1_default_still_h1).toBe("unclassified"); // default timeframe stays "H1" — no behavior change for existing H1/H4 callers
+  });
+
+  it("regression: list_gap_intervals() now classifies a real D1 series' weekly gaps as weekend_close, not unclassified — reproduces the exact bug found in the BTC/ETH D1 discovery results", () => {
+    const pyScript = `
+import sys, json
+sys.path.insert(0, "${PYTHON_DIR}")
+import mt5_data_connector as c
+from datetime import datetime, timedelta, timezone
+# 20 weeks of D1 bars, Mon-Fri only (weekend closed) -> exactly 20 weekly gaps expected, ALL weekend_close.
+bars = []
+t = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)  # a Monday
+for _ in range(20 * 5):
+    if t.weekday() < 5:
+        bars.append({"timestamp": t.strftime("%Y-%m-%dT%H:%M:%S.000Z")})
+    t += timedelta(days=1)
+    if t.weekday() >= 5:
+        t += timedelta(days=2 if t.weekday() == 5 else 1)
+gaps = c.list_gap_intervals(bars, "D1")
+tally = {}
+for g in gaps:
+    tally[g["classification"]] = tally.get(g["classification"], 0) + 1
+print(json.dumps(tally))
+`.trim();
+    const output = JSON.parse(execSync(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`, { cwd: process.cwd() }).toString().trim());
+    expect(output.unclassified ?? 0).toBe(0);
+    expect(output.weekend_close).toBeGreaterThan(0);
+  });
+
   it("list_gap_intervals() count matches count_gaps(), and each interval carries a classification", () => {
     const pyScript = `
 import sys, json
