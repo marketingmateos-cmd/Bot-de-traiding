@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { BASELINE_STRATEGY_REGISTRY, RESEARCH_STRATEGY_REGISTRY, getHypothesis } from "@/lib/engines/strategy";
+import { BASELINE_STRATEGY_REGISTRY, RESEARCH_STRATEGY_REGISTRY, getHypothesis, FTMO_CANDIDATE_STRATEGY_REGISTRY, getFtmoHypothesis } from "@/lib/engines/strategy";
 import { StrategyLabForm } from "@/components/strategyLab/StrategyLabForm";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,14 @@ export default async function StrategyLabPage() {
     const h = getHypothesis(s.id);
     return { id: s.id, name: s.name, version: s.version, defaultParams: s.defaultParams, experimental: true, family: h?.family, hypothesis: h?.hypothesis };
   });
-  const strategies = [...baselineStrategies, ...researchStrategies];
+  // Multi-Estrategias Candidatas FTMO — mismo patrón que las research (Fase
+  // 17): marcadas EXPERIMENTAL con family/hypothesis, nunca un tercer modo de
+  // ejecución. Candidatas de preselección estilo FTMO, no ganadoras.
+  const ftmoStrategies = FTMO_CANDIDATE_STRATEGY_REGISTRY.map((s) => {
+    const h = getFtmoHypothesis(s.id);
+    return { id: s.id, name: s.name, version: s.version, defaultParams: s.defaultParams, experimental: true, family: h?.family, hypothesis: h?.hypothesis };
+  });
+  const strategies = [...baselineStrategies, ...researchStrategies, ...ftmoStrategies];
 
   return (
     <div className="flex flex-col gap-5">
@@ -29,6 +36,11 @@ export default async function StrategyLabPage() {
         <p className="mt-1 text-sm text-muted">
           Las estrategias marcadas <span className="font-semibold text-warn">EXPERIMENTAL</span> (Fase 17) son hipótesis de investigación nuevas,
           con parámetros fijados antes de ver resultados — ninguna ha sido optimizada ni declarada ganadora.
+        </p>
+        <p className="mt-1 text-sm text-muted">
+          Las 3 <span className="font-semibold text-warn">Candidatas FTMO</span> (Tendencia/Breakout, Reversión a la Media, Cruce de Medias con
+          Momentum) buscan rentabilidad moderada y constante (2-5% mensual objetivo) con riesgo bajo por operación — son candidatas de
+          preselección para backtesting y filtrado, no estrategias en producción.
         </p>
       </div>
 
