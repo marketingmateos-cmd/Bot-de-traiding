@@ -185,3 +185,46 @@ None of this is fabricated resolution — every entry above stays
   re-run.
 
 Those are separate, future, explicitly-scoped phases.
+
+## 10. Post-fix data quality audit (BTCUSD/ETHUSD/US500) — tooling ready, real re-run pending
+
+The `classify_gap()` D1 fix (§8, commit `80b7bc8`) was never re-verified
+against a real run, and BTCUSD/ETHUSD/US500's per-pair sample metrics
+(`sampleSize`/`invalidCount`/`duplicateCount`) were never individually
+captured — the two open items §7 and §8 already name as the reason those
+9 pairs sit at `NOT_AUTHORIZED_FOR_RESEARCH` and why 254 stays
+"provisional". Closing both requires one real, small (`--max-rows 500`)
+re-run of `mt5_historical_discovery.py` against BTCUSD/ETHUSD/US500 ×
+H1/H4/D1 on a real MT5 DEMO terminal — something this repository's
+sandbox cannot do (see `python/mt5_data_connector.py`'s own module
+docstring: the `MetaTrader5` package only installs on Windows against a
+live terminal process).
+
+To make that re-run capture everything the audit needs in one pass,
+`discover_symbol_timeframe()` now also returns:
+
+- `broker_path` — the broker's own category path for the symbol (one
+  `mt5.symbol_info()` read), so the audit no longer has to cross-reference
+  a separate broker-survey run to confirm the category.
+- `sample_gap_intervals` — every gap's exact `after`/`before` boundary
+  timestamps and classification, not just a per-classification tally.
+- `sample_unclassified_gap_intervals` — the same list filtered to
+  `unclassified` only, so an `unclassified` gap's EXACT timestamps are
+  always available, never just its count.
+
+Run (on the Windows machine with the real MT5 DEMO terminal):
+
+```
+python python\mt5_historical_discovery.py --symbols BTCUSD,ETHUSD,US500 --timeframes H1,H4,D1 --max-rows 500 --json-out mt5-post-fix-audit.json
+```
+
+The resulting JSON's `results` array carries every field
+`mt5ResearchUniverseV1.ts`'s `RawEntryFacts` needs for these 9 pairs.
+Once reported back, `RAW_ENTRIES` for BTCUSD/ETHUSD/US500 gets updated
+from those real values only — never inferred — and, IF each entry then
+meets the existing `computeResearchFitness()` criteria (symbol+timeframe
+`AVAILABLE`, non-null `sampleSize`, zero known `invalidCount`/
+`duplicateCount` — unchanged, see mt5ResearchUniverseV1.ts), its
+`researchFitness` becomes `AUTHORIZED_FOR_RESEARCH`. Any pair that
+doesn't meet a criterion stays `NOT_AUTHORIZED_FOR_RESEARCH`, with the
+failing criterion stated explicitly — never forced.

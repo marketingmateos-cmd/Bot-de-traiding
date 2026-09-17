@@ -85,13 +85,21 @@ def discover_symbol_timeframe(mt5_symbol: str, timeframe: str, max_rows: int, di
     resolved name. `display_symbol` is the canonical/report-facing name
     (defaults to `mt5_symbol` itself when not given). Never raises for
     "no history" — reported as a `status` field instead, so one bad pair
-    never aborts a multi-pair run."""
+    never aborts a multi-pair run.
+
+    Besides the summary fields (gap COUNT by classification), the returned
+    dict also carries `sample_gap_intervals` — every gap's exact
+    `after`/`before` boundary timestamps and its classification, never just
+    a tally — and `sample_unclassified_gap_intervals`, the same list
+    filtered to `unclassified` only, so an audit can always cite the exact
+    timestamps a gap of unknown cause sits between, never just "N gaps"."""
     symbol = display_symbol if display_symbol is not None else mt5_symbol
+    broker_path = mt5c.get_symbol_path(mt5_symbol)
 
     earliest = mt5c.probe_earliest_bar(mt5_symbol, timeframe)
     latest = mt5c.probe_latest_bar(mt5_symbol, timeframe)
     if earliest is None or latest is None:
-        return {"symbol": symbol, "mt5_symbol": mt5_symbol, "timeframe": timeframe, "status": "NO_HISTORY_AVAILABLE"}
+        return {"symbol": symbol, "mt5_symbol": mt5_symbol, "broker_path": broker_path, "timeframe": timeframe, "status": "NO_HISTORY_AVAILABLE"}
 
     estimated_total = mt5c.estimate_expected_candle_count(earliest["timestamp"], latest["timestamp"], timeframe)
 
@@ -100,6 +108,7 @@ def discover_symbol_timeframe(mt5_symbol: str, timeframe: str, max_rows: int, di
         return {
             "symbol": symbol,
             "mt5_symbol": mt5_symbol,
+            "broker_path": broker_path,
             "timeframe": timeframe,
             "status": "PROBE_OK_BUT_SAMPLE_EMPTY",
             "earliest_available": earliest["timestamp"],
@@ -122,6 +131,11 @@ def discover_symbol_timeframe(mt5_symbol: str, timeframe: str, max_rows: int, di
     gap_tally: dict[str, int] = {}
     for gap in gaps:
         gap_tally[gap["classification"]] = gap_tally.get(gap["classification"], 0) + 1
+    # Full per-gap detail (after/before/missing/classification), not just the
+    # tally — needed so an "unclassified" gap's EXACT boundary timestamps are
+    # always available for audit, never only its count (spec: post-fix D1
+    # audit + US500 H1 unclassified-gap timestamps).
+    unclassified_gap_intervals = [g for g in gaps if g["classification"] == "unclassified"]
 
     dataset_hash = mt5c.compute_dataset_hash(valid_bars) if valid_bars else None
     sorted_valid = sorted(valid_bars, key=lambda b: b["timestamp"])
@@ -132,6 +146,7 @@ def discover_symbol_timeframe(mt5_symbol: str, timeframe: str, max_rows: int, di
     return {
         "symbol": symbol,
         "mt5_symbol": mt5_symbol,
+        "broker_path": broker_path,
         "timeframe": timeframe,
         "status": "OK",
         "earliest_available": earliest["timestamp"],
@@ -146,6 +161,8 @@ def discover_symbol_timeframe(mt5_symbol: str, timeframe: str, max_rows: int, di
         "sample_duplicate_count": duplicate_count,
         "sample_gap_count": len(gaps),
         "sample_gap_classification": gap_tally,
+        "sample_gap_intervals": gaps,
+        "sample_unclassified_gap_intervals": unclassified_gap_intervals,
         "sample_coverage_pct": coverage_pct,
         "dataset_hash": dataset_hash,
         "source": "mt5_demo",
@@ -236,12 +253,14 @@ def main() -> int:
                 coverage = result["sample_coverage_pct"]
                 coverage_str = f"{coverage:.1f}%" if coverage is not None else "n/a (no valid bars in sample)"
                 print(
-                    f"[MT5] {symbol}/{timeframe}: earliest={result['earliest_available']} latest={result['latest_available']} "
+                    f"[MT5] {symbol}/{timeframe} ({result['broker_path']}): earliest={result['earliest_available']} latest={result['latest_available']} "
                     f"est_total={result['estimated_total_candles_full_range']} | sample={result['sample_row_count']} "
                     f"(valid={result['sample_valid_count']} invalid={result['sample_invalid_count']}) "
                     f"dup={result['sample_duplicate_count']} gaps={result['sample_gap_count']} {result['sample_gap_classification']} "
                     f"coverage={coverage_str} hash={result['dataset_hash']}"
                 )
+                for gap in result["sample_unclassified_gap_intervals"]:
+                    print(f"[MT5]   UNCLASSIFIED gap: after={gap['after']} before={gap['before']} missing={gap['missing']}")
 
         ok_count = sum(1 for r in results if r["status"] == "OK")
         print()

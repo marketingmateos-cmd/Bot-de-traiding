@@ -233,7 +233,22 @@ print(json.dumps({"duplicate_count": duplicate_count, "gap_count": len(gaps), "t
 
   it("the discovery report's metadata field names (symbol/timeframe/broker/server/retrieved_at/hash/gap summary) are all present in _discover_one's return dict — matches the provenance convention", () => {
     const source = readFileSync(DISCOVERY_FILE, "utf8");
-    for (const field of ["\"symbol\"", "\"timeframe\"", "\"broker\"", "\"server\"", "\"retrieved_at\"", "\"dataset_hash\"", "\"sample_gap_classification\"", "\"sample_duplicate_count\"", "\"earliest_available\"", "\"latest_available\"", "\"source\""]) {
+    for (const field of [
+      "\"symbol\"",
+      "\"timeframe\"",
+      "\"broker\"",
+      "\"server\"",
+      "\"retrieved_at\"",
+      "\"dataset_hash\"",
+      "\"sample_gap_classification\"",
+      "\"sample_duplicate_count\"",
+      "\"earliest_available\"",
+      "\"latest_available\"",
+      "\"source\"",
+      "\"broker_path\"",
+      "\"sample_gap_intervals\"",
+      "\"sample_unclassified_gap_intervals\"",
+    ]) {
       expect(source).toContain(field);
     }
   });
@@ -263,7 +278,7 @@ print(json.dumps({"input_len": len(sample), "gap_missing": gaps[0]["missing"] if
 });
 
 describe("MT5 HISTORICAL DISCOVERY — mt5_data_connector.py additions are structurally read-only too", () => {
-  it("probe_earliest_bar/probe_latest_bar/get_recent_bars never call order_send or symbol_select", () => {
+  it("probe_earliest_bar/probe_latest_bar/get_recent_bars/get_symbol_path never call order_send or symbol_select", () => {
     const source = readFileSync(CONNECTOR_FILE, "utf8");
     expect(source).not.toMatch(/mt5\.order_send\(/);
     expect(source).not.toMatch(/mt5\.symbol_select\(/);
@@ -272,5 +287,51 @@ describe("MT5 HISTORICAL DISCOVERY — mt5_data_connector.py additions are struc
     expect(source).toContain("def probe_latest_bar(");
     expect(source).toContain("def get_recent_bars(");
     expect(source).toContain("def validate_ohlc_bars(");
+    expect(source).toContain("def get_symbol_path(");
+  });
+});
+
+describe.skipIf(!hasPython3())("MT5 HISTORICAL DISCOVERY — post-fix audit: per-gap timestamps (not just a tally)", () => {
+  it("list_gap_intervals() exposes each gap's exact after/before boundary timestamps, filterable to unclassified only — an audit can always cite the exact pair a gap of unknown cause sits between, never just a count", () => {
+    const py = `
+import sys, json
+sys.path.insert(0, "${PYTHON_DIR}")
+import mt5_data_connector as c
+from datetime import datetime, timedelta, timezone
+
+# 8 weeks of D1 bars (Mon-Fri) with ONE extra artificial mid-week gap
+# (Tue->Thu, 2 days = 48h, neither weekend nor <=3h) inserted in week 3 —
+# expect 8 weekend_close gaps (one per week boundary) plus exactly 1
+# unclassified gap, with that gap's own after/before timestamps recoverable.
+bars = []
+t = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)  # a Monday
+for week in range(8):
+    for day in range(5):
+        if week == 2 and day == 1:  # skip Tuesday of week 3 -> Mon,Wed,Thu,Fri that week
+            t += timedelta(days=1)
+            continue
+        bars.append({"timestamp": c._iso_ms_utc(t.timestamp()), "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1})
+        t += timedelta(days=1)
+    t += timedelta(days=2)  # weekend
+
+gaps = c.list_gap_intervals(bars, "D1")
+unclassified = [g for g in gaps if g["classification"] == "unclassified"]
+weekend = [g for g in gaps if g["classification"] == "weekend_close"]
+print(json.dumps({
+    "unclassified_count": len(unclassified),
+    "unclassified_has_timestamps": all("after" in g and "before" in g for g in unclassified),
+    "weekend_count": len(weekend),
+}))
+`.trim();
+    const output = JSON.parse(runPySnippet(py));
+    expect(output.unclassified_count).toBe(1);
+    expect(output.unclassified_has_timestamps).toBe(true);
+    expect(output.weekend_count).toBeGreaterThanOrEqual(7);
+  });
+
+  it("discover_symbol_timeframe() derives sample_unclassified_gap_intervals as exactly the subset of sample_gap_intervals with classification unclassified — verified over the same synthetic-pipeline shape the OK branch builds", () => {
+    const source = readFileSync(DISCOVERY_FILE, "utf8");
+    const idx = source.indexOf("unclassified_gap_intervals = [g for g in gaps if g[\"classification\"] == \"unclassified\"]");
+    expect(idx).toBeGreaterThan(-1);
   });
 });

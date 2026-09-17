@@ -214,6 +214,20 @@ DEFAULT_INDEX_SYMBOL_CANDIDATES: dict[str, tuple[str, ...]] = {
 }
 
 
+def get_symbol_path(symbol: str) -> Optional[str]:
+    """Returns the broker's OWN category path for an already-resolved
+    broker-native symbol (e.g. "Crypto CFD\\BTCUSD", "MB Pro\\Forex\\EURUSD..."),
+    via a single `mt5.symbol_info()` metadata read — never a guess from the
+    symbol's name. Returns None if the symbol doesn't exist or has no path,
+    exactly like every other probe in this module (never raises for "not
+    found", only for a real API failure elsewhere)."""
+    _require_mt5_package()
+    info = mt5.symbol_info(symbol)
+    if info is None:
+        return None
+    return info.path
+
+
 def discover_symbol(candidates: Sequence[str]) -> Optional[str]:
     """Tries each candidate broker symbol name in order against the LIVE
     terminal's own `symbol_info()`. Returns the first that exists, or None
