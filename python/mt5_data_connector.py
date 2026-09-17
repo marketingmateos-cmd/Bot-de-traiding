@@ -659,6 +659,92 @@ def shutdown() -> None:
         mt5.shutdown()
 
 
+def account_type_label(trade_mode: int) -> Optional[str]:
+    """MT5 REAL BRIDGE (read-only) — maps the OFFICIAL `ACCOUNT_TRADE_MODE`
+    integer to the exact `"DEMO" | "LIVE" | null` vocabulary the TypeScript
+    side's `Mt5AccountInfo.accountType` expects (src/lib/execution/types.ts).
+    Any trade_mode that isn't literally DEMO or REAL (e.g. CONTEST, or a
+    future/unrecognized value) maps to `None` — never guessed as either,
+    consistent with `assert_demo_or_raise()`'s own "anything but DEMO is
+    rejected" stance. This never itself decides demo-vs-live authorization
+    — that's still `assert_demo_or_raise()` / the TypeScript-side
+    `verifyAccountIsDemo()`'s job; this is purely a label for display.
+
+    Uses the ENUM_ACCOUNT_TRADE_MODE integer values directly (0=DEMO,
+    2=REAL — stable, official MT5 terminal API constants, identical to
+    `mt5.ACCOUNT_TRADE_MODE_DEMO`/`mt5.ACCOUNT_TRADE_MODE_REAL` whenever the
+    real package is available) rather than requiring the live
+    `MetaTrader5` package just to label an already-obtained integer — so
+    this one function stays unit-testable without a real MT5 terminal,
+    unlike every other function in this module that touches `mt5.*`."""
+    if trade_mode == 0:  # ACCOUNT_TRADE_MODE_DEMO
+        return "DEMO"
+    if trade_mode == 2:  # ACCOUNT_TRADE_MODE_REAL
+        return "LIVE"
+    return None
+
+
+def is_initialized() -> bool:
+    """MT5 REAL BRIDGE (read-only) — a cheap liveness check for callers
+    (the sidecar's `/mt5/status` endpoint) that need to know "is a
+    terminal session currently open" without re-reading full account info.
+    `mt5.terminal_info()` returns a real struct only while `initialize()`
+    has succeeded and `shutdown()` hasn't been called since; returns None
+    once shut down or if the package itself isn't available. Never raises
+    — a liveness probe that could itself fail defeats its purpose."""
+    if mt5 is None:
+        return False
+    return mt5.terminal_info() is not None
+
+
+def get_symbol_spec(symbol: str) -> Optional[dict]:
+    """MT5 REAL BRIDGE (read-only) — the broker's own trading-size/tick
+    metadata for an already-resolved broker-native symbol, via a single
+    `mt5.symbol_info()` read (the SAME call `get_symbol_path()` already
+    uses — never `symbol_select`, never subscribes the symbol to Market
+    Watch). Returns None if the symbol doesn't exist, exactly like every
+    other probe in this module. Field names match the sidecar's
+    `Mt5SymbolSpec` JSON contract (src/lib/execution/types.ts) directly so
+    the sidecar layer only has to pass this dict through unchanged."""
+    _require_mt5_package()
+    info = mt5.symbol_info(symbol)
+    if info is None:
+        return None
+    return {
+        "symbol": symbol,
+        "tickSize": float(info.trade_tick_size),
+        "tickValue": float(info.trade_tick_value),
+        "contractSize": float(info.trade_contract_size),
+        "volumeStep": float(info.volume_step),
+        "volumeMin": float(info.volume_min),
+        "volumeMax": float(info.volume_max),
+        "digits": int(info.digits),
+    }
+
+
+def get_quote(symbol: str) -> Optional[dict]:
+    """MT5 REAL BRIDGE (read-only) — the broker's last known bid/ask/last
+    for an already-resolved broker-native symbol, via a single
+    `mt5.symbol_info_tick()` read — a pure quote read, never a
+    subscription/order call. Returns None if the symbol doesn't exist or
+    the terminal has no tick for it yet, never fabricated. `last` is 0 for
+    most FX/CFD symbols (MT5 doesn't report a genuine "last traded price"
+    for quote-driven instruments) — passed through exactly as the broker
+    reports it, never substituted with mid-price or any other guess."""
+    _require_mt5_package()
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None:
+        return None
+    return {
+        "symbol": symbol,
+        "bid": float(tick.bid),
+        "ask": float(tick.ask),
+        "spread": float(tick.ask) - float(tick.bid),
+        "last": float(tick.last) if tick.last else None,
+        "timestamp": _iso_ms_utc(tick.time),
+    }
+
+
 def _js_number_str(x: float) -> str:
     """Formats a number exactly like JavaScript's `Number.prototype.toString()`
     — critically, a whole-number float like `100.0` becomes `"100"`, never

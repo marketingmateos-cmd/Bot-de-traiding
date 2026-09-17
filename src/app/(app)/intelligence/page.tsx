@@ -3,6 +3,7 @@ import { SUPPORTED_ASSETS } from "@/lib/env";
 import { Card } from "@/components/ui/Card";
 import { ScoreBar } from "@/components/ui/StatTile";
 import { Badge, regimeTone } from "@/components/ui/Badge";
+import { CandlestickChart } from "@/components/charts/CandlestickChart";
 import { tRegime } from "@/lib/i18n";
 import Link from "next/link";
 import clsx from "clsx";
@@ -36,6 +37,13 @@ export default async function IntelligencePage({ searchParams }: { searchParams:
           </Link>
         ))}
       </div>
+
+      <Card
+        title={`Gráfico de Precio — ${symbol}`}
+        subtitle={`${analysis.timeframe} · ${analysis.bars.length} velas · fuente: ${analysis.source} (${analysis.isDemo ? "demo" : "real"})`}
+      >
+        <CandlestickChart bars={analysis.bars} />
+      </Card>
 
       {mi ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

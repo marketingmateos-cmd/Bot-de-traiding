@@ -415,3 +415,65 @@ describe.skipIf(!hasPython3())("MT5 REAL DEMO SMOKE TEST — mt5_precheck.py (sp
     expect(exitCode).toBe(1);
   });
 });
+
+describe.skipIf(!hasPython3())("MT5 REAL BRIDGE — new read-only primitives in mt5_data_connector.py (account_type_label, is_initialized, get_symbol_spec, get_quote)", () => {
+  it("account_type_label() maps the official ENUM_ACCOUNT_TRADE_MODE integers to DEMO/LIVE/null, testable WITHOUT a live MT5 package (unlike every other function that touches mt5.*)", () => {
+    const pyScript = `
+import sys, json
+sys.path.insert(0, "${PYTHON_DIR}")
+import mt5_data_connector as c
+print(json.dumps({
+  "demo": c.account_type_label(0),
+  "contest": c.account_type_label(1),
+  "live": c.account_type_label(2),
+  "unknown": c.account_type_label(999),
+}))
+`.trim();
+    const output = execSync(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`, { cwd: process.cwd() }).toString().trim();
+    expect(JSON.parse(output)).toEqual({ demo: "DEMO", contest: null, live: "LIVE", unknown: null });
+  });
+
+  it("is_initialized() returns False (never raises) when the MetaTrader5 package itself is unavailable — this sandbox's real state", () => {
+    const pyScript = `
+import sys, json
+sys.path.insert(0, "${PYTHON_DIR}")
+import mt5_data_connector as c
+print(json.dumps(c.is_initialized()))
+`.trim();
+    const output = execSync(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`, { cwd: process.cwd() }).toString().trim();
+    expect(JSON.parse(output)).toBe(false);
+  });
+
+  it("get_symbol_spec()/get_quote() raise Mt5ConnectionError (never a raw AttributeError/None-crash) when the package is unavailable — the sidecar catches exactly this exception type", () => {
+    const pyScript = `
+import sys, json
+sys.path.insert(0, "${PYTHON_DIR}")
+import mt5_data_connector as c
+
+results = {}
+for name, fn in [("spec", lambda: c.get_symbol_spec("EURUSD")), ("quote", lambda: c.get_quote("EURUSD"))]:
+    try:
+        fn()
+        results[name] = "NO_EXCEPTION_RAISED"
+    except c.Mt5ConnectionError:
+        results[name] = "Mt5ConnectionError"
+    except Exception as exc:  # noqa: BLE001
+        results[name] = f"WRONG_EXCEPTION_TYPE:{type(exc).__name__}"
+print(json.dumps(results))
+`.trim();
+    const output = execSync(`python3 -c '${pyScript.replace(/'/g, "'\\''")}'`, { cwd: process.cwd() }).toString().trim();
+    expect(JSON.parse(output)).toEqual({ spec: "Mt5ConnectionError", quote: "Mt5ConnectionError" });
+  });
+
+  it("structural: none of the 4 new functions call order_send/symbol_select — read-only, matching the rest of this module", () => {
+    const source = readFileSync(CONNECTOR_FILE, "utf8");
+    const startIdx = source.indexOf("def account_type_label(");
+    expect(startIdx).toBeGreaterThan(-1);
+    const newFunctionsSource = source.slice(startIdx);
+    expect(newFunctionsSource).not.toMatch(/order_send\(/);
+    expect(newFunctionsSource).not.toMatch(/symbol_select\(/);
+    expect(newFunctionsSource).toContain("def is_initialized(");
+    expect(newFunctionsSource).toContain("def get_symbol_spec(");
+    expect(newFunctionsSource).toContain("def get_quote(");
+  });
+});

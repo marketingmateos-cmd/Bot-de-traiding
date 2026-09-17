@@ -1,20 +1,35 @@
 import { MT5DemoExecutionAdapter } from "./mt5DemoExecutionAdapter";
+import type { Mt5ClientLike } from "./mt5Client";
 import { createUnavailableMt5Client } from "./mt5Client";
+import { createMt5SidecarClient } from "./mt5SidecarClient";
 import type { TradingExecutionAdapter } from "./types";
 
 /**
  * Same single-lazy-singleton pattern as `src/lib/providers/registry.ts` —
  * one place that decides which concrete `Mt5ClientLike` backs the adapter
- * right now. Today that's always `createUnavailableMt5Client()`: this repo
- * ships no real MT5 bridge (see mt5Client.ts's doc comment for why a real
- * one can't be tested from this environment). Wiring a real backend later
- * is a one-line change here — nothing else in the app needs to know.
+ * right now. MT5 REAL BRIDGE: when `MT5_SIDECAR_URL` AND `MT5_SIDECAR_TOKEN`
+ * are both set in the environment, this wires `createMt5SidecarClient()` —
+ * a real HTTP client talking to `python/mt5_sidecar.py` (Windows only, a
+ * real MT5 terminal). With EITHER unset (the default in this sandbox and in
+ * any deployment that hasn't set up a sidecar), behavior is UNCHANGED from
+ * before this bridge existed: `createUnavailableMt5Client()`, which always
+ * reports "not connected" and never fabricates data. Nothing else in the
+ * app needs to know which one is active.
  */
 let executionAdapter: TradingExecutionAdapter | null = null;
 
+function resolveMt5Client(): Mt5ClientLike {
+  const baseUrl = process.env.MT5_SIDECAR_URL;
+  const token = process.env.MT5_SIDECAR_TOKEN;
+  if (baseUrl && token) {
+    return createMt5SidecarClient({ baseUrl, token });
+  }
+  return createUnavailableMt5Client();
+}
+
 export function getMt5ExecutionAdapter(): TradingExecutionAdapter {
   if (!executionAdapter) {
-    executionAdapter = new MT5DemoExecutionAdapter(createUnavailableMt5Client());
+    executionAdapter = new MT5DemoExecutionAdapter(resolveMt5Client());
   }
   return executionAdapter;
 }

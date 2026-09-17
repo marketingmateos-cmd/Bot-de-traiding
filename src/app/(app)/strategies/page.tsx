@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { getStrategyPerformanceStats } from "@/lib/engines/strategyStats";
 import { Card } from "@/components/ui/Card";
 import { Badge, regimeTone } from "@/components/ui/Badge";
+import { StrategyActiveToggle } from "@/components/strategies/StrategyActiveToggle";
 import { tRegime, tStrategyKind } from "@/lib/i18n";
 import { fromJson } from "@/lib/json";
 import type { Regime } from "@/lib/engines/regime";
@@ -17,6 +18,7 @@ export default async function StrategiesPage() {
       <div>
         <h1 className="text-lg font-semibold text-slate-100">Estrategias</h1>
         <p className="mt-1 text-sm text-muted">Cada estrategia está versionada; los parámetros y reglas quedan congelados por versión para que las operaciones pasadas sigan siendo reproducibles.</p>
+        <p className="mt-1 text-xs text-muted">Solo las estrategias marcadas &ldquo;ACTIVA PARA EL BOT&rdquo; se evalúan en el próximo ciclo del bot autónomo — desactivar aquí no borra ni modifica ninguna versión.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -27,6 +29,9 @@ export default async function StrategiesPage() {
               {fromJson<Regime[]>(v.recommendedRegimes, []).map((r) => (
                 <Badge key={r} tone={regimeTone(r)}>{tRegime(r)}</Badge>
               ))}
+            </div>
+            <div className="mb-3">
+              <StrategyActiveToggle strategyId={v.strategy.id} initialIsActive={v.strategy.isActive} />
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
               <div>

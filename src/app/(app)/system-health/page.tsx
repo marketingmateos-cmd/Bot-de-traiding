@@ -4,12 +4,21 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { ScoreBar } from "@/components/ui/StatTile";
 import { tEvidenceLevel, tSeverity } from "@/lib/i18n";
+import { fromJson } from "@/lib/json";
 
 export const dynamic = "force-dynamic";
 const ACCOUNT_ID = "main-paper-account";
+const AUDIT_LOG_LIMIT = 50;
 
 export default async function SystemHealthPage() {
   const alerts = await prisma.systemAlert.findMany({ orderBy: { createdAt: "desc" }, take: 15 });
+  // MVP Bloque 3 — AuditLog (auditLog.ts's logAudit()) es append-only y
+  // hasta ahora no tenía ningún visor: solo se escribía, nunca se leía
+  // desde la UI. Reutiliza el mismo patrón de lista que "Alertas Recientes
+  // del Sistema" de esta misma página, sobre una tabla distinta
+  // (AuditLog, no SystemAlert) — AuditLog no tiene columna de severidad en
+  // el schema, así que nunca se inventa una aquí.
+  const auditEntries = await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: AUDIT_LOG_LIMIT });
 
   // Also persists this snapshot to the SystemHealth table (Fase 2 fix — see
   // systemHealth.ts) so every visit adds a real history data point, on top
@@ -64,6 +73,50 @@ export default async function SystemHealthPage() {
               </li>
             ))}
           </ul>
+        )}
+      </Card>
+
+      <Card title="Registro de Auditoría" subtitle={`Últimas ${AUDIT_LOG_LIMIT} entradas — registro append-only, ningún evento se puede editar ni borrar desde aquí`}>
+        {auditEntries.length === 0 ? (
+          <p className="text-sm text-muted">No hay entradas de auditoría registradas.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-bg-border text-muted">
+                  <th className="py-1.5 pr-3 font-medium">Fecha/Hora</th>
+                  <th className="py-1.5 pr-3 font-medium">Acción</th>
+                  <th className="py-1.5 pr-3 font-medium">Origen (entidad)</th>
+                  <th className="py-1.5 pr-3 font-medium">Detalle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditEntries.map((entry) => {
+                  const data = fromJson<Record<string, unknown> | null>(entry.data, null);
+                  return (
+                    <tr key={entry.id} className="border-b border-bg-border/50">
+                      <td className="py-1.5 pr-3 font-mono text-muted">{new Date(entry.createdAt).toLocaleString()}</td>
+                      <td className="py-1.5 pr-3 font-medium text-slate-200">{entry.action}</td>
+                      <td className="py-1.5 pr-3 text-muted">
+                        {entry.entity}
+                        {entry.entityId ? ` · ${entry.entityId}` : ""}
+                      </td>
+                      <td className="py-1.5 pr-3">
+                        {data ? (
+                          <details>
+                            <summary className="cursor-pointer text-accent">ver</summary>
+                            <pre className="mt-1 max-w-xs overflow-x-auto rounded bg-black/30 p-2 font-mono text-[10px] text-slate-300">{JSON.stringify(data, null, 2)}</pre>
+                          </details>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
     </div>
