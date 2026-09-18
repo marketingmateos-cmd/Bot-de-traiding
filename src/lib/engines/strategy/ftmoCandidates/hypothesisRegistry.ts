@@ -130,6 +130,33 @@ export const FTMO_HYPOTHESIS_REGISTRY: StrategyHypothesis[] = [
     falsificationCriteria:
       "La hipótesis queda debilitada/rechazada si, sobre el mismo dataset y las mismas 4 corridas ya usadas para evaluar v1 y v2 (BTC/ETH H1, sep-2025→ago-2026 y sep-2024→ago-2025): (a) el número de operaciones de v2.1 no aumenta frente a v2 en ninguna corrida (si el umbral relajado no deja pasar ninguna señal adicional, la relajación no tuvo efecto medible), o (b) el Profit Factor y/o el retorno mensual medio de v2.1 empeoran frente a v2 en al menos 3 de las 4 corridas (señal de que las operaciones adicionales capturadas eran precisamente las de peor calidad que v2 descartaba con razón). Si el drawdown medio de v2.1 supera el de v1 (5.84%) — no solo el de v2 (1.67%) — la hipótesis también queda rechazada: relajar el filtro nunca debe devolver la disciplina de riesgo al nivel, o peor, que el de la estrategia original sin filtro.",
   },
+  {
+    strategyId: "momentum-breakout-ftmo-v1",
+    strategyName: "Apex Breakout FTMO (Candidata D)",
+    family: "D — Ruptura de volatilidad institucional (compresión + gatillo de alta energía + R:R asimétrico)",
+    hypothesis:
+      "Estilo Larry Williams / ruptura institucional ('coiled spring'): un mercado que se ha COMPRIMIDO (volatilidad reciente muy por debajo de su propia media de referencia) acumula energía que tiende a liberarse en un movimiento expansivo cuando finalmente rompe el rango — pero solo la ruptura que llega con verdadera energía (cuerpo de vela que excede claramente el ATR normal, no un simple toque de un nuevo extremo con una vela pequeña) tiende a tener continuación real, en vez de revertir en la siguiente vela. Estructuralmente distinta de `trendBreakoutFtmo.ts` (exige alineación con una TENDENCIA ya establecida, sin exigir compresión previa ni cuerpo mínimo) y de `volatility.ts` original (Fase 4, solo mide expansión de ATR agregado, sin fase de compresión previa ni umbral de cuerpo): aquí las TRES condiciones — compresión previa, cuerpo de alta energía, ruptura real del rango comprimido — deben coincidir. Al ser una señal rara y de alta convicción, el objetivo es asimétrico (R:R 1:3.5 por defecto, dentro del rango 1:3–1:4 solicitado): se acepta un win rate más bajo a cambio de que los aciertos cubran varias pérdidas pequeñas.",
+    expectedRegime: "RANGE/LOW_VOLATILITY (donde ocurre la compresión) resolviéndose hacia TRANSITION/HIGH_VOLATILITY (el régimen medido EN la propia vela de activación, ya con la expansión reflejada).",
+    expectedFailureRegime: "STRONG_BULL/BULL/BEAR/STRONG_BEAR — una tendencia ya establecida y fuerte no es el terreno de esta estrategia (ahí compite con la Candidata A, que sí exige esa alineación); una ruptura de compresión dentro de una tendencia ya extendida tiene más riesgo de ser una continuación tardía que una genuina liberación de energía.",
+    entryLogic:
+      "1) ATR(volatilityPeriod) de la vela actual > 0. 2) Gatillo de alta energía: |close-open| de la vela actual >= bodyAtrMultiplier × ATR actual. 3) Compresión previa: ATR medio de las `compressionLookback` velas ESTRICTAMENTE anteriores / ATR medio de las `baselinePeriod` velas ESTRICTAMENTE anteriores <= compressionThreshold. 4) Ruptura real: close actual > máximo (LONG) o < mínimo (SHORT) de esas mismas `compressionLookback` velas anteriores, Y el cuerpo de la vela actual va en esa misma dirección (cierre bullish para ruptura al alza, bearish para ruptura a la baja). Las cuatro condiciones deben cumplirse a la vez; ninguna se relaja si solo faltan una o varias.",
+    exitLogic: "SL/TP fijos calculados en la entrada, con objetivo deliberadamente asimétrico frente al resto de candidatas FTMO.",
+    slLogic: "stopDistance = ATR(volatilityPeriod) × atrMultiplier de la vela actual. SL = close ∓ stopDistance.",
+    tpLogic: "TP = close ± stopDistance × rrr (rrr=3.5 por defecto, dentro del rango 1:3–1:4 solicitado).",
+    initialParams: {
+      volatilityPeriod: 14,
+      compressionLookback: 10,
+      baselinePeriod: 50,
+      compressionThreshold: 0.65,
+      bodyAtrMultiplier: 1.5,
+      atrMultiplier: 1,
+      rrr: 3.5,
+    },
+    parameterJustification:
+      "volatilityPeriod=14 reutiliza el periodo ATR estándar del repositorio. compressionLookback=10 y baselinePeriod=50 dan una ventana de referencia 5x más larga que la ventana de compresión — suficiente para distinguir 'el mercado se ha enroscado recientemente' de 'este es simplemente un activo poco volátil en general', sin ser tan larga como para diluir compresiones genuinas de corto plazo. compressionThreshold=0.65 exige que la volatilidad reciente sea claramente menor (no solo marginalmente) que la de referencia — un valor redondo, no calibrado sobre resultados. bodyAtrMultiplier=1.5 es el valor explícitamente solicitado ('cuerpo > 1.5x ATR') para el gatillo de alta energía. atrMultiplier=1 da un stop ajustado (la propia vela de ruptura ya es un movimiento grande, un stop más amplio no se justifica). rrr=3.5 es el punto medio del rango 1:3–1:4 explícitamente solicitado.",
+    falsificationCriteria:
+      "La hipótesis queda debilitada/rechazada si, sobre datos históricos reales, el Profit Factor no compensa el win rate más bajo esperado de un sistema de R:R asimétrico (es decir, si el Profit Factor no supera 1 pese a que el objetivo es 3.5x el riesgo — señal de que ni siquiera 1 de cada 4-5 operaciones acierta), o si el número de señales es tan bajo que la muestra resulta INCONCLUSIVE (nunca una confirmación) para declarar cualquier edge.",
+  },
 ];
 
 export function getFtmoHypothesis(strategyId: string): StrategyHypothesis | undefined {

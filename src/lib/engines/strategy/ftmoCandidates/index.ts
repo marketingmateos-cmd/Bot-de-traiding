@@ -3,13 +3,15 @@ import { meanReversionFtmoStrategy } from "./meanReversionFtmo";
 import { maCrossMomentumFtmoStrategy } from "./maCrossMomentumFtmo";
 import { maCrossMomentumFtmoV2Strategy } from "./maCrossMomentumFtmoV2";
 import { maCrossMomentumFtmoV2_1Strategy } from "./maCrossMomentumFtmoV2_1";
+import { momentumBreakoutFtmoStrategy } from "./momentumBreakoutFtmo";
 import type { StrategyDefinition } from "../types";
 
 /**
- * Multi-Estrategias Candidatas para Backtesting y Filtrado FTMO — 3
- * familias nuevas (Tendencia/Breakout, Reversión a la Media, Cruce de
- * Medias con Momentum), todas orientadas a rentabilidad MODERADA y
- * CONSTANTE con riesgo bajo por operación (stop ATR ajustado, RRR modesto).
+ * Multi-Estrategias Candidatas para Backtesting y Filtrado FTMO — 4
+ * familias (Tendencia/Breakout, Reversión a la Media, Cruce de Medias con
+ * Momentum, Apex Breakout), todas orientadas a rentabilidad MODERADA y
+ * CONSTANTE con riesgo bajo por operación (stop ATR ajustado, RRR modesto
+ * o asimétrico según la familia).
  * Mismo patrón que `../baseline/index.ts` y `../research/index.ts`:
  * deliberadamente NO forman parte de `STRATEGY_REGISTRY` — nunca se
  * ejecutan en el bot de paper trading en vivo ni en el replay "Bot
@@ -26,6 +28,7 @@ export const FTMO_CANDIDATE_STRATEGY_REGISTRY: StrategyDefinition[] = [
   // Backtesting/Strategy Lab.
   maCrossMomentumFtmoV2Strategy,
   maCrossMomentumFtmoV2_1Strategy,
+  momentumBreakoutFtmoStrategy,
 ];
 
 export {
@@ -34,5 +37,6 @@ export {
   maCrossMomentumFtmoStrategy,
   maCrossMomentumFtmoV2Strategy,
   maCrossMomentumFtmoV2_1Strategy,
+  momentumBreakoutFtmoStrategy,
 };
 export { FTMO_HYPOTHESIS_REGISTRY, getFtmoHypothesis } from "./hypothesisRegistry";
