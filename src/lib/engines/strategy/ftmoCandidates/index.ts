@@ -2,6 +2,7 @@ import { trendBreakoutFtmoStrategy } from "./trendBreakoutFtmo";
 import { meanReversionFtmoStrategy } from "./meanReversionFtmo";
 import { maCrossMomentumFtmoStrategy } from "./maCrossMomentumFtmo";
 import { maCrossMomentumFtmoV2Strategy } from "./maCrossMomentumFtmoV2";
+import { maCrossMomentumFtmoV2_1Strategy } from "./maCrossMomentumFtmoV2_1";
 import type { StrategyDefinition } from "../types";
 
 /**
@@ -20,10 +21,18 @@ export const FTMO_CANDIDATE_STRATEGY_REGISTRY: StrategyDefinition[] = [
   trendBreakoutFtmoStrategy,
   meanReversionFtmoStrategy,
   maCrossMomentumFtmoStrategy,
-  // v2 se AÑADE junto a v1 — v1 nunca se sobrescribe ni se elimina, para
-  // poder comparar ambas versiones directamente en Backtesting/Strategy Lab.
+  // v2 y v2.1 se AÑADEN junto a v1 — ninguna versión anterior se sobrescribe
+  // ni se elimina, para poder comparar las tres directamente en
+  // Backtesting/Strategy Lab.
   maCrossMomentumFtmoV2Strategy,
+  maCrossMomentumFtmoV2_1Strategy,
 ];
 
-export { trendBreakoutFtmoStrategy, meanReversionFtmoStrategy, maCrossMomentumFtmoStrategy, maCrossMomentumFtmoV2Strategy };
+export {
+  trendBreakoutFtmoStrategy,
+  meanReversionFtmoStrategy,
+  maCrossMomentumFtmoStrategy,
+  maCrossMomentumFtmoV2Strategy,
+  maCrossMomentumFtmoV2_1Strategy,
+};
 export { FTMO_HYPOTHESIS_REGISTRY, getFtmoHypothesis } from "./hypothesisRegistry";

@@ -100,6 +100,36 @@ export const FTMO_HYPOTHESIS_REGISTRY: StrategyHypothesis[] = [
     falsificationCriteria:
       "La hipótesis queda debilitada/rechazada si, sobre el mismo dataset y las mismas ventanas ya usadas para evaluar v1 (BTC/ETH H1, sep-2025→ago-2026 y sep-2024→ago-2025): (a) el número de operaciones de v2 no es estrictamente menor o igual al de v1 en cada corrida (el filtro ATR debe ser un filtro adicional, nunca ampliar el universo de señales), y (b) el Profit Factor y el retorno mensual medio de v2 no mejoran frente a v1 en al menos 3 de las 4 corridas. Si el drawdown medio de v2 empeora frente a v1 pese al trailing stop, la hipótesis también queda rechazada — v2 nunca debe sacrificar la disciplina de riesgo que era la principal fortaleza de v1.",
   },
+  {
+    strategyId: "ma-cross-momentum-ftmo-v2-1",
+    strategyName: "Cruce de Medias con Momentum FTMO v2.1 (Candidata C — Filtro ATR 0.75x + TP Dinámico)",
+    family: "C-v2.1 — Cruce de medias por evento + momentum + filtro de volatilidad mínima RELAJADO (0.75x) + TP dinámico",
+    hypothesis:
+      "Tercera iteración escrita a partir de la evidencia REAL de v2 (backtest sobre BTC/ETH H1, mismas 2 ventanas de 12 meses, 4 corridas, auditoría de señales bruta vs. filtrada): el filtro ATR de v2 (umbral 1.0x, exigir que el ATR actual sea al menos el 100% de su media reciente) descartó el 75% de las señales brutas de cruce+momentum (38 de 51), incluida la ÚNICA señal del año en BTC-alcista (0 operaciones esa ventana) — un sobre-filtrado que dejó una muestra de solo 13 operaciones en 4 activos-año, insuficiente para demostrar edge de forma robusta pese a que la ventana ETH-alcista sí mostró un resultado genuinamente positivo (PF 1.53). La hipótesis de v2.1 es que bajar el umbral a 0.75x permite capturar entradas cuando la volatilidad ya está REPUNTANDO desde un mínimo reciente pero aún no ha vuelto por completo a su media — el inicio real de un movimiento institucional, no solo su confirmación tardía — sin dejar de rechazar los rangos genuinamente muertos (volatilidad muy por debajo de lo normal). Ningún otro parámetro cambia respecto a v2.",
+    expectedRegime: "Igual que v1/v2: STRONG_BULL/BULL (cruces alcistas), BEAR/STRONG_BEAR (cruces bajistas).",
+    expectedFailureRegime: "Igual que v2 (RANGE/NEUTRAL, whipsaw) — un umbral más laxo (0.75x) podría, por construcción, dejar pasar más falsos cruces en compresión de volatilidad que v2 (1.0x); esto se mide directamente comparando el número de operaciones y el Profit Factor de v2.1 frente a v2, no se asume.",
+    entryLogic:
+      "Idéntica a v2 en todo: cruce EMA(fastPeriod/slowPeriod) por EVENTO + confirmación RSI(momentumPeriod) vs. momentumThreshold + ATR(volatilityPeriod) de la vela actual >= media de su propio ATR de las `atrFilterPeriod` velas ESTRICTAMENTE anteriores × `atrFilterMultiplier`. Único cambio: atrFilterMultiplier baja de 1 a 0.75.",
+    exitLogic: "Idéntica a v2, sin cambios: SL/TP dinámico/trailing stop calculados exactamente igual.",
+    slLogic: "Sin cambios respecto a v1/v2: stopDistance = ATR(volatilityPeriod) × atrMultiplier de la vela actual. SL = close ∓ stopDistance.",
+    tpLogic: "Sin cambios respecto a v2: TP = close ± stopDistance × (baseRrr + intensidadMomentum × momentumRrrBonus). Rango dinámico [1.4, 2.6].",
+    initialParams: {
+      fastPeriod: 10,
+      slowPeriod: 30,
+      momentumPeriod: 14,
+      momentumThreshold: 50,
+      volatilityPeriod: 14,
+      atrMultiplier: 1.3,
+      atrFilterPeriod: 20,
+      atrFilterMultiplier: 0.75,
+      baseRrr: 1.4,
+      momentumRrrBonus: 1.2,
+    },
+    parameterJustification:
+      "Todos los parámetros se HEREDAN sin cambios de v2 excepto uno: atrFilterMultiplier baja de 1 a 0.75, un valor redondo (75% de la media reciente) elegido por ser la relajación explícita solicitada — no calibrado buscando maximizar ningún resultado del propio backtest de v2.1 (que no se había ejecutado todavía al fijar este valor). No se toca ningún otro parámetro precisamente para aislar el efecto de esta única relajación frente a v2.",
+    falsificationCriteria:
+      "La hipótesis queda debilitada/rechazada si, sobre el mismo dataset y las mismas 4 corridas ya usadas para evaluar v1 y v2 (BTC/ETH H1, sep-2025→ago-2026 y sep-2024→ago-2025): (a) el número de operaciones de v2.1 no aumenta frente a v2 en ninguna corrida (si el umbral relajado no deja pasar ninguna señal adicional, la relajación no tuvo efecto medible), o (b) el Profit Factor y/o el retorno mensual medio de v2.1 empeoran frente a v2 en al menos 3 de las 4 corridas (señal de que las operaciones adicionales capturadas eran precisamente las de peor calidad que v2 descartaba con razón). Si el drawdown medio de v2.1 supera el de v1 (5.84%) — no solo el de v2 (1.67%) — la hipótesis también queda rechazada: relajar el filtro nunca debe devolver la disciplina de riesgo al nivel, o peor, que el de la estrategia original sin filtro.",
+  },
 ];
 
 export function getFtmoHypothesis(strategyId: string): StrategyHypothesis | undefined {

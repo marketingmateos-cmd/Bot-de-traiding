@@ -13,6 +13,7 @@ export const STRATEGY_OPTIONS = [
   { id: "mean-reversion-ftmo-v1", name: "Reversión a la Media FTMO (Candidata B)" },
   { id: "ma-cross-momentum-ftmo-v1", name: "Cruce de Medias con Momentum FTMO (Candidata C)" },
   { id: "ma-cross-momentum-ftmo-v2", name: "Cruce de Medias con Momentum FTMO v2 (Candidata C — Filtro ATR + TP Dinámico)" },
+  { id: "ma-cross-momentum-ftmo-v2-1", name: "Cruce de Medias con Momentum FTMO v2.1 (Candidata C — Filtro ATR 0.75x + TP Dinámico)" },
 ];
 
 export const ASSET_OPTIONS = ["BTC", "ETH", "SOL", "XRP", "BNB", "DOGE", "ADA"];

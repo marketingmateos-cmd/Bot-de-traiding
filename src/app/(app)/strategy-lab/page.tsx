@@ -39,9 +39,10 @@ export default async function StrategyLabPage() {
         </p>
         <p className="mt-1 text-sm text-muted">
           Las <span className="font-semibold text-warn">Candidatas FTMO</span> (Tendencia/Breakout, Reversión a la Media, Cruce de Medias con
-          Momentum v1 y v2) buscan rentabilidad moderada y constante (2-5% mensual objetivo) con riesgo bajo por operación — son candidatas de
+          Momentum v1/v2/v2.1) buscan rentabilidad moderada y constante (2-5% mensual objetivo) con riesgo bajo por operación — son candidatas de
           preselección para backtesting y filtrado, no estrategias en producción. v2 añade un filtro de volatilidad mínima y un Take Profit
-          dinámico sobre v1, que sigue disponible para comparar ambas versiones directamente.
+          dinámico sobre v1; v2.1 relaja ese filtro (0.75x en vez de 1.0x) para reducir el sobre-filtrado observado en v2. Las tres versiones
+          siguen disponibles para comparar directamente.
         </p>
       </div>
 
