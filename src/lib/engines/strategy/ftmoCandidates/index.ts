@@ -4,6 +4,7 @@ import { maCrossMomentumFtmoStrategy } from "./maCrossMomentumFtmo";
 import { maCrossMomentumFtmoV2Strategy } from "./maCrossMomentumFtmoV2";
 import { maCrossMomentumFtmoV2_1Strategy } from "./maCrossMomentumFtmoV2_1";
 import { momentumBreakoutFtmoStrategy } from "./momentumBreakoutFtmo";
+import { momentumBreakoutFtmoV2Strategy } from "./momentumBreakoutFtmoV2";
 import type { StrategyDefinition } from "../types";
 
 /**
@@ -29,6 +30,8 @@ export const FTMO_CANDIDATE_STRATEGY_REGISTRY: StrategyDefinition[] = [
   maCrossMomentumFtmoV2Strategy,
   maCrossMomentumFtmoV2_1Strategy,
   momentumBreakoutFtmoStrategy,
+  // v2 se AÑADE junto a v1 — v1 nunca se sobrescribe ni se elimina.
+  momentumBreakoutFtmoV2Strategy,
 ];
 
 export {
@@ -38,5 +41,6 @@ export {
   maCrossMomentumFtmoV2Strategy,
   maCrossMomentumFtmoV2_1Strategy,
   momentumBreakoutFtmoStrategy,
+  momentumBreakoutFtmoV2Strategy,
 };
 export { FTMO_HYPOTHESIS_REGISTRY, getFtmoHypothesis } from "./hypothesisRegistry";

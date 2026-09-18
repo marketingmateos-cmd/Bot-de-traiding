@@ -77,7 +77,12 @@ export function runBacktest(
     mfe: number;
   } | null = null;
 
-  let pendingSignal: { direction: "LONG" | "SHORT"; fromIndex: number } | null = null;
+  let pendingSignal: { direction: "LONG" | "SHORT"; fromIndex: number; riskScaleFactor: number } | null = null;
+  // Consecutive-loss circuit breaker support (Candidata D v2) — tracked
+  // here, never inferred by a strategy itself, since `evaluate()` is a pure
+  // function with no access to trade history. Every existing strategy
+  // ignores `context.consecutiveLosses`, so this is inert for them.
+  let consecutiveLosses = 0;
 
   for (let i = WARMUP_BARS; i < bars.length; i++) {
     const window = bars.slice(0, i + 1); // no look-ahead: only up to and including bar i
@@ -141,6 +146,7 @@ export function runBacktest(
           mfe: openPosition.mfe,
         });
         openPosition = null;
+        consecutiveLosses = netPnl <= 0 ? consecutiveLosses + 1 : 0;
       }
     }
 
@@ -163,7 +169,12 @@ export function runBacktest(
       const stopLoss = pendingSignal.direction === "LONG" ? fillPrice * (1 - stopDistancePct) : fillPrice * (1 + stopDistancePct);
       const takeProfit =
         pendingSignal.direction === "LONG" ? fillPrice * (1 + strategy.defaultTakeProfitPct / 100) : fillPrice * (1 - strategy.defaultTakeProfitPct / 100);
-      const sizing = calculatePositionSize({ equity, entryPrice: fillPrice, stopLossPrice: stopLoss, riskPerTradePct });
+      const sizing = calculatePositionSize({
+        equity,
+        entryPrice: fillPrice,
+        stopLossPrice: stopLoss,
+        riskPerTradePct: riskPerTradePct * pendingSignal.riskScaleFactor,
+      });
 
       if (sizing.quantity > 0) {
         const entryFee = sizing.notional * (strategy.costModel.feeBps / 10000);
@@ -196,9 +207,9 @@ export function runBacktest(
             const htfFeatures = htfWindow.length > 5 ? computeLatestFeatures(htfWindow) : null;
             higherTrend = htfFeatures?.trend;
           }
-          const signal = strategy.evaluate(window, features, params, regime.regime, { higherTimeframeTrend: higherTrend });
+          const signal = strategy.evaluate(window, features, params, regime.regime, { higherTimeframeTrend: higherTrend, consecutiveLosses });
           if (signal) {
-            pendingSignal = { direction: signal.direction, fromIndex: i };
+            pendingSignal = { direction: signal.direction, fromIndex: i, riskScaleFactor: signal.riskScaleFactor ?? 1 };
           }
         }
       }

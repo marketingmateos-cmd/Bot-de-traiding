@@ -49,12 +49,31 @@ export interface StrategySignal {
   takeProfitPrice?: number;
   /** Free-form audit fields a strategy wants recorded verbatim (e.g. breakoutLevel, stopDistance, RRR) — never interpreted, only carried through to the decision/trade record for transparency. */
   meta?: Record<string, number | string>;
+  /**
+   * Optional position-size multiplier (0 < factor <= 1) the strategy wants
+   * applied to its own next entry — e.g. a consecutive-loss circuit breaker
+   * scaling risk down after a losing streak (Candidata D v2). The caller
+   * multiplies its normal `riskPerTradePct` by this factor before sizing.
+   * 1 (or omitted) means no change; every existing strategy leaves this
+   * undefined and is completely unaffected.
+   */
+  riskScaleFactor?: number;
 }
 
 export interface StrategyContext {
   higherTimeframeTrend?: number; // -1..1, from a longer timeframe's features.trend
   newsImpactScore?: number; // 0-100
   newsSentiment?: number; // -1..1
+  /**
+   * How many of this strategy's own most recent CLOSED trades, counting
+   * back from the most recent, were losses in a row — 0 if the last trade
+   * was a win or there are no closed trades yet. Engine-computed from real
+   * trade history (`backtest.ts`/`historicalReplayEngine.ts`); `evaluate()`
+   * has no other way to know its own past outcomes, since it is otherwise a
+   * pure function of bars/features/params/regime. Only a strategy that
+   * opts in reads this — every existing strategy ignores it.
+   */
+  consecutiveLosses?: number;
 }
 
 export interface StrategyDefinition {

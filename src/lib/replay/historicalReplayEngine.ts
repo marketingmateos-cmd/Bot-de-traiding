@@ -154,7 +154,19 @@ export async function runReplayOnBars(
           const features = computeLatestFeatures(window);
           if (!features) continue;
           const regime = detectRegime(window);
-          const signal = strategyDef.evaluate(window, features, config.strategyParamsOverride ?? strategyDef.defaultParams, regime.regime);
+          // Consecutive-loss circuit breaker support (Candidata D v2) — this
+          // strategy's own closed trades so far, hoisted here (rather than
+          // where `stats`/`evidence` need it below) so `evaluate()` can see
+          // its own trailing losing streak. `evaluate()` has no other way to
+          // know it — it is otherwise a pure function of bars/features/
+          // params/regime. Every existing strategy ignores this field.
+          const strategyTrades = portfolio.closedTrades.filter((t) => t.strategyId === strategyDef.id);
+          let consecutiveLosses = 0;
+          for (let ti = strategyTrades.length - 1; ti >= 0; ti--) {
+            if (strategyTrades[ti].netPnl <= 0) consecutiveLosses++;
+            else break;
+          }
+          const signal = strategyDef.evaluate(window, features, config.strategyParamsOverride ?? strategyDef.defaultParams, regime.regime, { consecutiveLosses });
           if (!signal) continue; // no decision recorded — see doc comment on ReplayDecisionRecord
 
           const meta = assetsMeta.get(symbol);
@@ -162,7 +174,6 @@ export async function runReplayOnBars(
           const dataQuality = evaluateDataQuality(window, config.timeframe);
           const intelligence = buildIntelligenceContext(symbol, tickMs, priceChangePct, config.dataSource);
 
-          const strategyTrades = portfolio.closedTrades.filter((t) => t.strategyId === strategyDef.id);
           const stats = computeTradeStats(strategyTrades);
           const evidence = assessEvidence(stats);
 
@@ -240,7 +251,12 @@ export async function runReplayOnBars(
           // behavior as before.
           const stopLoss = signal.stopLossPrice ?? (signal.direction === "LONG" ? entryPrice * (1 - strategyDef.defaultStopLossPct / 100) : entryPrice * (1 + strategyDef.defaultStopLossPct / 100));
           const takeProfit = signal.takeProfitPrice ?? (signal.direction === "LONG" ? entryPrice * (1 + strategyDef.defaultTakeProfitPct / 100) : entryPrice * (1 - strategyDef.defaultTakeProfitPct / 100));
-          const sizing = calculatePositionSize({ equity, entryPrice, stopLossPrice: stopLoss, riskPerTradePct: riskLimits.riskPerTradePct });
+          const sizing = calculatePositionSize({
+            equity,
+            entryPrice,
+            stopLossPrice: stopLoss,
+            riskPerTradePct: riskLimits.riskPerTradePct * (signal.riskScaleFactor ?? 1),
+          });
 
           const riskCheck = checkExposureLimits({
             equity,

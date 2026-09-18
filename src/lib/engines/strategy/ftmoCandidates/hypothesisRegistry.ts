@@ -157,6 +157,35 @@ export const FTMO_HYPOTHESIS_REGISTRY: StrategyHypothesis[] = [
     falsificationCriteria:
       "La hipótesis queda debilitada/rechazada si, sobre datos históricos reales, el Profit Factor no compensa el win rate más bajo esperado de un sistema de R:R asimétrico (es decir, si el Profit Factor no supera 1 pese a que el objetivo es 3.5x el riesgo — señal de que ni siquiera 1 de cada 4-5 operaciones acierta), o si el número de señales es tan bajo que la muestra resulta INCONCLUSIVE (nunca una confirmación) para declarar cualquier edge.",
   },
+  {
+    strategyId: "momentum-breakout-ftmo-v2",
+    strategyName: "Apex Breakout FTMO v2 (Candidata D — Circuit Breaker Anti-Racha)",
+    family: "D-v2 — Ruptura de volatilidad institucional + control de racha perdedora (Consecutive Loss Circuit Breaker)",
+    hypothesis:
+      "Segunda iteración escrita a partir de la evidencia REAL de v1 (backtest sobre BTC/ETH H1, mismas 2 ventanas de 12 meses, 4 corridas): v1 fue la primera candidata FTMO con expectancy media positiva (+0.14/operación, Profit Factor medio 1.20, 3 de 4 ventanas ganadoras) pero violó el límite de Max Drawdown de FTMO (<10%) en las 2 ventanas bajistas (13.75% BTC, 12.84% ETH) — precisamente las de mayor rentabilidad. Un sistema de R:R asimétrico (objetivo 3.5x el riesgo, win rate realizado ~29%) acumula, por diseño estadístico, rachas de varias pérdidas pequeñas antes del acierto grande que las compensa; el drawdown se dispara cuando esas rachas se alargan más de lo habitual en regímenes volátiles. La hipótesis de v2 es que reducir el riesgo por operación (50% del tamaño normal) tras 3 pérdidas consecutivas de la propia estrategia — sin tocar la lógica de entrada, que es la fuente del edge — contiene la profundidad de esas rachas lo suficiente para mantener el Max Drawdown bajo 8% sin destruir la asimetría de beneficios que hizo rentable a v1.",
+    expectedRegime: "Igual que v1: RANGE/LOW_VOLATILITY resolviéndose hacia TRANSITION/HIGH_VOLATILITY.",
+    expectedFailureRegime: "Igual que v1 (tendencias ya establecidas) — el circuit breaker no cambia el terreno de la estrategia, solo su gestión de riesgo durante una racha perdedora ya en curso.",
+    entryLogic:
+      "Idéntica a v1 en las cuatro condiciones de entrada (compresión previa + gatillo de alta energía + ruptura real + dirección consistente del cuerpo) — ninguna se relaja ni se añade. La única adición es posterior a que la señal ya esté decidida: si `context.consecutiveLosses` (calculado por el motor de simulación a partir de los trades cerrados REALES de esta misma estrategia, nunca inferido dentro de `evaluate()`) es >= `circuitBreakerThreshold` (3), la señal se marca con `riskScaleFactor = circuitBreakerScaleFactor` (0.5); si no, `riskScaleFactor = 1` (sin cambio). El motor multiplica su `riskPerTradePct` normal por ese factor antes de calcular el tamaño de la posición — la entrada sigue disparándose igual, solo cambia cuánto capital arriesga.",
+    exitLogic: "Idéntica a v1, sin cambios: SL/TP fijos asimétricos calculados en la entrada.",
+    slLogic: "Sin cambios respecto a v1: stopDistance = ATR(volatilityPeriod) × atrMultiplier de la vela actual. SL = close ∓ stopDistance.",
+    tpLogic: "Sin cambios respecto a v1: TP = close ± stopDistance × rrr (rrr=3.5 por defecto).",
+    initialParams: {
+      volatilityPeriod: 14,
+      compressionLookback: 10,
+      baselinePeriod: 50,
+      compressionThreshold: 0.65,
+      bodyAtrMultiplier: 1.5,
+      atrMultiplier: 1,
+      rrr: 3.5,
+      circuitBreakerThreshold: 3,
+      circuitBreakerScaleFactor: 0.5,
+    },
+    parameterJustification:
+      "Todos los parámetros de entrada/salida se HEREDAN sin cambios de v1 — no se re-calibran a partir de los resultados de v1, precisamente para aislar el efecto del circuit breaker. circuitBreakerThreshold=3 y circuitBreakerScaleFactor=0.5 (reducir a la mitad tras 3 pérdidas seguidas) son exactamente los valores solicitados explícitamente, no ajustados buscando maximizar ningún resultado del propio backtest de v2 (que no se había ejecutado todavía al fijar estos valores).",
+    falsificationCriteria:
+      "La hipótesis queda debilitada/rechazada si, sobre el mismo dataset y las mismas 4 corridas ya usadas para evaluar v1 (BTC/ETH H1, sep-2025→ago-2026 y sep-2024→ago-2025): (a) el Max Drawdown de v2 en BTC-bajista y/o ETH-bajista NO baja de 8% (el circuit breaker no cumplió su objetivo explícito), o (b) el Profit Factor y/o el retorno mensual medio de v2 empeoran frente a v1 en al menos 3 de las 4 corridas de forma que la reducción de riesgo destruye más edge del que protege drawdown (el circuit breaker nunca debe convertir una estrategia con expectancy positiva en una con expectancy negativa). El número de operaciones de v2 debe ser IGUAL al de v1 en cada corrida (el circuit breaker cambia el TAMAÑO de las operaciones, nunca si se abren o no) — si difiere, hay un error de implementación, no una relajación válida de la hipótesis.",
+  },
 ];
 
 export function getFtmoHypothesis(strategyId: string): StrategyHypothesis | undefined {
