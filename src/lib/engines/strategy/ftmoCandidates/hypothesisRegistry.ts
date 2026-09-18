@@ -69,6 +69,37 @@ export const FTMO_HYPOTHESIS_REGISTRY: StrategyHypothesis[] = [
     falsificationCriteria:
       "La hipótesis queda debilitada/rechazada si el filtro de momentum no reduce el ratio de cruces fallidos (SL alcanzado en pocas velas) frente a un cruce de medias SIN confirmación de momentum sobre el mismo dataset, o si el requisito de cruce fresco (evento) produce tan pocas señales que la muestra es demasiado pequeña para concluir nada (INCONCLUSIVE, nunca confirmación).",
   },
+  {
+    strategyId: "ma-cross-momentum-ftmo-v2",
+    strategyName: "Cruce de Medias con Momentum FTMO v2 (Candidata C — Filtro ATR + TP Dinámico)",
+    family: "C-v2 — Cruce de medias por evento + momentum + filtro de volatilidad mínima + TP dinámico",
+    hypothesis:
+      "Segunda iteración escrita a partir de la evidencia REAL de v1 (backtest sobre BTC/ETH H1, 2 ventanas de 12 meses, 4 corridas): v1 ya tenía la mejor disciplina de riesgo de las 3 candidatas (drawdown medio 5.8% frente a 33.5%/49.0% de A/B) pero sin edge neto positivo (retorno medio mensual −0.31%, Profit Factor medio 0.53, solo 48 operaciones en 4 años-activo — algunas ventanas con 1 sola operación). La hipótesis de v2 es que una parte de esas pérdidas viene de cruces disparados en rangos de volatilidad ANORMALMENTE BAJA (falsas rupturas de medias sin recorrido real), y que un TP fijo de RRR=1.4 corta ganadores fuertes antes de tiempo cuando el momentum de entrada era alto. v2 añade (a) un filtro de ATR mínimo relativo al propio historial reciente del activo en la vela de activación, y (b) un TP cuyo RRR escala con la intensidad del RSI de entrada (más momentum → objetivo más ambicioso) más un trailing stop que protege beneficio ya conseguido — el Stop Loss (ATR×atrMultiplier) NO cambia respecto a v1.",
+    expectedRegime: "Igual que v1: STRONG_BULL/BULL (cruces alcistas), BEAR/STRONG_BEAR (cruces bajistas).",
+    expectedFailureRegime: "Igual que v1 (RANGE/NEUTRAL, whipsaw) — el filtro ATR debería, además, reducir específicamente los cruces que sí pasan el gate de régimen pero ocurren en compresión de volatilidad dentro de un régimen nominalmente direccional.",
+    entryLogic:
+      "Idéntica a v1 (cruce EMA(fastPeriod/slowPeriod) por EVENTO + confirmación RSI(momentumPeriod) vs. momentumThreshold) MÁS una tercera condición obligatoria: ATR(volatilityPeriod) de la vela actual >= media de su propio ATR de las `atrFilterPeriod` velas ESTRICTAMENTE anteriores (ventana excluye la vela actual) × `atrFilterMultiplier`. Las tres condiciones (cruce fresco + momentum + volatilidad no anormalmente baja) deben cumplirse a la vez; ninguna se relaja si solo faltan una o dos.",
+    exitLogic:
+      "SL calculado en la entrada igual que v1 (no cambia). TP dinámico calculado en la entrada: RRR efectivo = baseRrr + min(1, intensidadMomentum) × momentumRrrBonus, donde intensidadMomentum es cuán lejos está el RSI de `momentumThreshold` (saturado en 1 en el extremo). Trailing stop (misma magnitud que el SL) activo en el motor de backtesting estático para proteger beneficio ya conseguido sin capar el trade al primer objetivo.",
+    slLogic: "Sin cambios respecto a v1: stopDistance = ATR(volatilityPeriod) × atrMultiplier de la vela actual. SL = close ∓ stopDistance.",
+    tpLogic: "TP = close ± stopDistance × (baseRrr + intensidadMomentum × momentumRrrBonus). Rango dinámico con los parámetros por defecto: RRR ∈ [1.4, 2.6].",
+    initialParams: {
+      fastPeriod: 10,
+      slowPeriod: 30,
+      momentumPeriod: 14,
+      momentumThreshold: 50,
+      volatilityPeriod: 14,
+      atrMultiplier: 1.3,
+      atrFilterPeriod: 20,
+      atrFilterMultiplier: 1,
+      baseRrr: 1.4,
+      momentumRrrBonus: 1.2,
+    },
+    parameterJustification:
+      "fastPeriod/slowPeriod/momentumPeriod/momentumThreshold/volatilityPeriod/atrMultiplier se HEREDAN sin cambios de v1 — no se re-calibran a partir de los resultados de v1, precisamente para aislar el efecto de las dos mejoras nuevas. atrFilterPeriod=20 es una ventana de calibración de volatilidad habitual en este repositorio (mismo orden que `period` de Bollinger en la Candidata B). atrFilterMultiplier=1 es la elección más simple y neutral posible: exigir que la volatilidad actual sea al menos la media reciente, ni más laxo ni más estricto — un valor >1 habría sido un ajuste discrecional sin base estructural. baseRrr=1.4 es idéntico al RRR fijo de v1 (el caso de menor momentum de v2 se reduce exactamente a v1); momentumRrrBonus=1.2 fue elegido para que el techo dinámico (2.6) coincida con el punto medio ya usado como aproximación estática (`defaultTakeProfitPct`), no ajustado para maximizar ningún resultado.",
+    falsificationCriteria:
+      "La hipótesis queda debilitada/rechazada si, sobre el mismo dataset y las mismas ventanas ya usadas para evaluar v1 (BTC/ETH H1, sep-2025→ago-2026 y sep-2024→ago-2025): (a) el número de operaciones de v2 no es estrictamente menor o igual al de v1 en cada corrida (el filtro ATR debe ser un filtro adicional, nunca ampliar el universo de señales), y (b) el Profit Factor y el retorno mensual medio de v2 no mejoran frente a v1 en al menos 3 de las 4 corridas. Si el drawdown medio de v2 empeora frente a v1 pese al trailing stop, la hipótesis también queda rechazada — v2 nunca debe sacrificar la disciplina de riesgo que era la principal fortaleza de v1.",
+  },
 ];
 
 export function getFtmoHypothesis(strategyId: string): StrategyHypothesis | undefined {
