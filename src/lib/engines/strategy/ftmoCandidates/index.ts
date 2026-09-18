@@ -5,14 +5,17 @@ import { maCrossMomentumFtmoV2Strategy } from "./maCrossMomentumFtmoV2";
 import { maCrossMomentumFtmoV2_1Strategy } from "./maCrossMomentumFtmoV2_1";
 import { momentumBreakoutFtmoStrategy } from "./momentumBreakoutFtmo";
 import { momentumBreakoutFtmoV2Strategy } from "./momentumBreakoutFtmoV2";
+import { sniperHighConvictionFtmoStrategy } from "./sniperHighConvictionFtmo";
 import type { StrategyDefinition } from "../types";
 
 /**
- * Multi-Estrategias Candidatas para Backtesting y Filtrado FTMO — 4
+ * Multi-Estrategias Candidatas para Backtesting y Filtrado FTMO — 5
  * familias (Tendencia/Breakout, Reversión a la Media, Cruce de Medias con
- * Momentum, Apex Breakout), todas orientadas a rentabilidad MODERADA y
- * CONSTANTE con riesgo bajo por operación (stop ATR ajustado, RRR modesto
- * o asimétrico según la familia).
+ * Momentum, Apex Breakout, Sniper High Conviction), todas orientadas a
+ * rentabilidad MODERADA y CONSTANTE con riesgo bajo por operación (stop
+ * ATR ajustado, RRR modesto o asimétrico según la familia) — salvo la
+ * Candidata E, que deliberadamente arriesga MÁS por operación a cambio de
+ * ser la más selectiva de todas.
  * Mismo patrón que `../baseline/index.ts` y `../research/index.ts`:
  * deliberadamente NO forman parte de `STRATEGY_REGISTRY` — nunca se
  * ejecutan en el bot de paper trading en vivo ni en el replay "Bot
@@ -32,6 +35,7 @@ export const FTMO_CANDIDATE_STRATEGY_REGISTRY: StrategyDefinition[] = [
   momentumBreakoutFtmoStrategy,
   // v2 se AÑADE junto a v1 — v1 nunca se sobrescribe ni se elimina.
   momentumBreakoutFtmoV2Strategy,
+  sniperHighConvictionFtmoStrategy,
 ];
 
 export {
@@ -42,5 +46,6 @@ export {
   maCrossMomentumFtmoV2_1Strategy,
   momentumBreakoutFtmoStrategy,
   momentumBreakoutFtmoV2Strategy,
+  sniperHighConvictionFtmoStrategy,
 };
 export { FTMO_HYPOTHESIS_REGISTRY, getFtmoHypothesis } from "./hypothesisRegistry";

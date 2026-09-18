@@ -50,12 +50,15 @@ export interface StrategySignal {
   /** Free-form audit fields a strategy wants recorded verbatim (e.g. breakoutLevel, stopDistance, RRR) — never interpreted, only carried through to the decision/trade record for transparency. */
   meta?: Record<string, number | string>;
   /**
-   * Optional position-size multiplier (0 < factor <= 1) the strategy wants
-   * applied to its own next entry — e.g. a consecutive-loss circuit breaker
-   * scaling risk down after a losing streak (Candidata D v2). The caller
-   * multiplies its normal `riskPerTradePct` by this factor before sizing.
-   * 1 (or omitted) means no change; every existing strategy leaves this
-   * undefined and is completely unaffected.
+   * Optional position-size multiplier (> 0) the strategy wants applied to
+   * its own next entry — DOWN for a consecutive-loss circuit breaker
+   * scaling risk after a losing streak (e.g. 0.5, Candidata D v2), or UP
+   * for a deliberately rare, high-conviction signal sizing more
+   * aggressively than the normal per-trade risk (e.g. 2, Candidata E —
+   * "few bets, sized bigger"). The caller multiplies its normal
+   * `riskPerTradePct` by this factor before sizing. 1 (or omitted) means no
+   * change; every existing strategy leaves this undefined and is
+   * completely unaffected.
    */
   riskScaleFactor?: number;
 }

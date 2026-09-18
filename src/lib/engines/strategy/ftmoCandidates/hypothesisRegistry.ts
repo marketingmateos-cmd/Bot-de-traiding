@@ -186,6 +186,36 @@ export const FTMO_HYPOTHESIS_REGISTRY: StrategyHypothesis[] = [
     falsificationCriteria:
       "La hipótesis queda debilitada/rechazada si, sobre el mismo dataset y las mismas 4 corridas ya usadas para evaluar v1 (BTC/ETH H1, sep-2025→ago-2026 y sep-2024→ago-2025): (a) el Max Drawdown de v2 en BTC-bajista y/o ETH-bajista NO baja de 8% (el circuit breaker no cumplió su objetivo explícito), o (b) el Profit Factor y/o el retorno mensual medio de v2 empeoran frente a v1 en al menos 3 de las 4 corridas de forma que la reducción de riesgo destruye más edge del que protege drawdown (el circuit breaker nunca debe convertir una estrategia con expectancy positiva en una con expectancy negativa). El número de operaciones de v2 debe ser IGUAL al de v1 en cada corrida (el circuit breaker cambia el TAMAÑO de las operaciones, nunca si se abren o no) — si difiere, hay un error de implementación, no una relajación válida de la hipótesis.",
   },
+  {
+    strategyId: "sniper-high-conviction-ftmo-v1",
+    strategyName: "Sniper High Conviction FTMO (Candidata E)",
+    family: "E — Ultra-selectiva: compresión máxima + gatillo de energía masivo + pico de volumen real + tamaño agresivo",
+    hypothesis:
+      "Evolución deliberadamente MÁS restrictiva de la Candidata D: en vez de tres condiciones simultáneas (compresión + energía + ruptura), exige CUATRO — compresión MÁXIMA (umbral 0.5, frente a 0.65 de D), un gatillo de energía masivo (cuerpo >= 2.0×ATR, frente a 1.5×ATR de D), un pico de VOLUMEN real (el volumen negociado debe ser >= 2.0× su propia media reciente — la primera vez que una candidata FTMO usa el volumen negociado real, no solo el precio) y una ruptura real del rango comprimido. La premisa es 'pocas operaciones, apostadas fuerte': cuando las cuatro condiciones coinciden, la convicción es la máxima posible dentro de esta familia, así que el tamaño se escala agresivamente hacia ARRIBA (riskScaleFactor=2, el doble del 1% estándar) en vez de mantenerse conservador — apostando a que la extrema escasez de señales compensa el mayor riesgo por operación. Objetivo R:R 1:4, el más amplio de toda la familia.",
+    expectedRegime: "Igual que la Candidata D: RANGE/LOW_VOLATILITY resolviéndose hacia TRANSITION/HIGH_VOLATILITY.",
+    expectedFailureRegime: "Igual que D (tendencias ya establecidas) — el filtro de volumen y la compresión más estricta no cambian el terreno de la estrategia, solo reducen aún más la frecuencia de señales dentro de él.",
+    entryLogic:
+      "1) ATR(volatilityPeriod) de la vela actual > 0. 2) Gatillo de energía MASIVO: cuerpo >= bodyAtrMultiplier(2.0) × ATR actual. 3) Gatillo de VOLUMEN: volumen de la vela actual >= volumeMultiplier(2.0) × la media de su propio volumen de las `volumeLookback` velas ESTRICTAMENTE anteriores. 4) Compresión MÁXIMA previa: ATR medio de las `compressionLookback` velas ESTRICTAMENTE anteriores / ATR medio de las `baselinePeriod` velas ESTRICTAMENTE anteriores <= compressionThreshold(0.5). 5) Ruptura real: close actual > máximo (LONG) o < mínimo (SHORT) de esas mismas velas comprimidas, con el cuerpo en la misma dirección. Las CUATRO condiciones (2-5) deben cumplirse a la vez; ninguna se relaja si solo faltan una o varias.",
+    exitLogic: "SL/TP fijos calculados en la entrada, con el objetivo R:R más amplio de la familia (1:4) y tamaño de posición agresivo (riskScaleFactor=2).",
+    slLogic: "stopDistance = ATR(volatilityPeriod) × atrMultiplier de la vela actual. SL = close ∓ stopDistance.",
+    tpLogic: "TP = close ± stopDistance × rrr (rrr=4 por defecto).",
+    initialParams: {
+      volatilityPeriod: 14,
+      compressionLookback: 10,
+      baselinePeriod: 50,
+      compressionThreshold: 0.5,
+      bodyAtrMultiplier: 2,
+      volumeLookback: 20,
+      volumeMultiplier: 2,
+      atrMultiplier: 1,
+      rrr: 4,
+      riskScaleFactor: 2,
+    },
+    parameterJustification:
+      "volatilityPeriod/compressionLookback/baselinePeriod/atrMultiplier se HEREDAN sin cambios de la Candidata D — no se re-calibran, para aislar el efecto de las condiciones más estrictas. compressionThreshold baja de 0.65 (D) a 0.5 ('compresión máxima', valor redondo explícitamente más severo, no calibrado sobre resultados). bodyAtrMultiplier sube de 1.5 (D) a 2.0 ('gatillo masivo', el valor explícitamente solicitado). volumeLookback=20 reutiliza una ventana de calibración habitual en este repositorio (mismo orden que el periodo RSI/Bollinger de otras candidatas). volumeMultiplier=2.0 es el valor explícitamente solicitado ('gatillo masivo de volumen 2.0x'). rrr=4 es el objetivo R:R 1:4 explícitamente solicitado. riskScaleFactor=2 ('tamaño de posición agresivo', explícitamente solicitado) reutiliza el mismo mecanismo introducido para el circuit breaker de la Candidata D v2 (`StrategySignal.riskScaleFactor`), aquí escalando HACIA ARRIBA en vez de hacia abajo — ninguno de estos valores se ha ajustado mirando el resultado del propio backtest de la Candidata E, que no se había ejecutado todavía al fijarlos.",
+    falsificationCriteria:
+      "La hipótesis queda debilitada/rechazada si, sobre datos históricos reales: (a) el número total de señales en las 4 corridas (BTC/ETH H1, ambas ventanas) es tan alto que contradice la premisa de 'ultra-selectiva' (más operaciones que la Candidata D, que ya es la más selectiva hasta ahora, sería una señal de que el filtro de volumen/compresión no está añadiendo restricción real), o (b) el número de señales es tan bajo (0-2 en total) que la muestra es INCONCLUSIVE — no se puede declarar ni éxito ni fracaso, solo falta de evidencia — o (c) el Profit Factor no supera claramente 1 pese al objetivo R:R 1:4 (señal de que ni la convicción máxima garantiza un win rate mínimamente aceptable), o (d) el tamaño agresivo (riskScaleFactor=2) produce un Max Drawdown que supera el límite FTMO del 10% a partir de muy pocas operaciones — el riesgo de que 'apostar fuerte' con datos insuficientes sea la explicación real de cualquier resultado positivo, no el edge de la estrategia.",
+  },
 ];
 
 export function getFtmoHypothesis(strategyId: string): StrategyHypothesis | undefined {

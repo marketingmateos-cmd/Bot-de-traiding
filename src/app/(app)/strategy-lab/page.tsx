@@ -39,11 +39,13 @@ export default async function StrategyLabPage() {
         </p>
         <p className="mt-1 text-sm text-muted">
           Las <span className="font-semibold text-warn">Candidatas FTMO</span> (Tendencia/Breakout, Reversión a la Media, Cruce de Medias con
-          Momentum v1/v2/v2.1, Apex Breakout v1/v2) buscan rentabilidad moderada y constante (2-5% mensual objetivo) con riesgo bajo por operación
-          — son candidatas de preselección para backtesting y filtrado, no estrategias en producción. v2 añade un filtro de volatilidad mínima y
-          un Take Profit dinámico sobre v1; v2.1 relaja ese filtro (0.75x en vez de 1.0x). Apex Breakout (Candidata D) es una familia distinta:
-          ruptura de volatilidad tras compresión, con un objetivo de R:R deliberadamente asimétrico (1:3.5); su v2 añade un circuit breaker que
-          reduce el tamaño de posición a la mitad tras 3 pérdidas consecutivas propias, hasta la siguiente operación ganadora.
+          Momentum v1/v2/v2.1, Apex Breakout v1/v2, Sniper High Conviction) buscan rentabilidad moderada y constante (2-5% mensual objetivo) con
+          riesgo bajo por operación — son candidatas de preselección para backtesting y filtrado, no estrategias en producción. v2 añade un
+          filtro de volatilidad mínima y un Take Profit dinámico sobre v1; v2.1 relaja ese filtro (0.75x en vez de 1.0x). Apex Breakout (Candidata
+          D) es una familia distinta: ruptura de volatilidad tras compresión, con un objetivo de R:R deliberadamente asimétrico (1:3.5); su v2
+          añade un circuit breaker que reduce el tamaño de posición a la mitad tras 3 pérdidas consecutivas propias. Sniper High Conviction
+          (Candidata E) lleva la selectividad al extremo — compresión máxima, gatillo de energía 2.0×ATR y un pico de volumen real simultáneos —
+          y, a cambio de operar muy poco, arriesga el doble de tamaño por operación.
         </p>
       </div>
 

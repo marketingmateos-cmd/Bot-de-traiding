@@ -16,6 +16,7 @@ export const STRATEGY_OPTIONS = [
   { id: "ma-cross-momentum-ftmo-v2-1", name: "Cruce de Medias con Momentum FTMO v2.1 (Candidata C — Filtro ATR 0.75x + TP Dinámico)" },
   { id: "momentum-breakout-ftmo-v1", name: "Apex Breakout FTMO (Candidata D)" },
   { id: "momentum-breakout-ftmo-v2", name: "Apex Breakout FTMO v2 (Candidata D — Circuit Breaker Anti-Racha)" },
+  { id: "sniper-high-conviction-ftmo-v1", name: "Sniper High Conviction FTMO (Candidata E)" },
 ];
 
 export const ASSET_OPTIONS = ["BTC", "ETH", "SOL", "XRP", "BNB", "DOGE", "ADA"];
