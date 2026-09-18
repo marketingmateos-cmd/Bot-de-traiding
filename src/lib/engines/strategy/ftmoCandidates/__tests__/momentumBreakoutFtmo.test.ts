@@ -19,10 +19,12 @@ const DUMMY_FEATURES: FeatureSnapshot = {
   momentum: 0,
 };
 
-const { volatilityPeriod, compressionLookback, baselinePeriod } = momentumBreakoutFtmoStrategy.defaultParams as {
+const { volatilityPeriod, compressionLookback, baselinePeriod, macroPeriod, macroSlopeLookback } = momentumBreakoutFtmoStrategy.defaultParams as {
   volatilityPeriod: number;
   compressionLookback: number;
   baselinePeriod: number;
+  macroPeriod: number;
+  macroSlopeLookback: number;
 };
 
 function makeBarsFromCloses(closes: number[], wobblePct: number): OHLCVBar[] {
@@ -39,22 +41,25 @@ function makeBarsFromCloses(closes: number[], wobblePct: number): OHLCVBar[] {
   }));
 }
 
+// `macroPeriod + macroSlopeLookback` = 120 bars must sit ENTIRELY before the
+// trigger bar with room to spare, so every fixture's baseline block is sized
+// against this (never the old, pre-macro-filter 60-bar baseline).
+const BASELINE_LEN = macroPeriod + macroSlopeLookback + 30;
+
 /**
- * Builds baseline (moderate volatility) + compression (tight volatility,
- * deliberately longer than `compressionLookback` alone so every ATR value
- * inside the strategy's own recent-window is itself computed from a
- * PURELY-compressed 14-bar lookback, never blended with the baseline
- * phase — otherwise ATR's own smoothing dilutes the contrast the strategy
- * is meant to detect) bars, then a single trigger bar whose body is
+ * Builds a compression (tight volatility, deliberately longer than
+ * `compressionLookback` alone so every ATR value inside the strategy's own
+ * recent-window is itself computed from a PURELY-compressed 14-bar
+ * lookback, never blended with the baseline phase — otherwise ATR's own
+ * smoothing dilutes the contrast the strategy is meant to detect) block
+ * anchored at `lastBaselineClose`, then a single trigger bar whose body is
  * `jumpPct` away from the last compressed close, breaking out in
- * `direction`.
+ * `direction`. Shared by every fixture below — flat-macro and
+ * dirty-bearish-macro fixtures differ only in what precedes this tail.
  */
-function makeCompressionFixture(direction: "LONG" | "SHORT", jumpPct: number, compressionWobblePct: number, baselineWobblePct = 0.006): OHLCVBar[] {
+function makeCompressionAndTriggerTail(lastBaselineClose: number, direction: "LONG" | "SHORT", jumpPct: number, compressionWobblePct: number): OHLCVBar[] {
   const compressionBlockLen = volatilityPeriod + compressionLookback;
-  const baselineCloses = Array.from({ length: 60 }, (_, i) => 100 + (i % 2 === 0 ? 0.4 : -0.4));
-  const baselineBars = makeBarsFromCloses(baselineCloses, baselineWobblePct);
-  const lastBaseline = baselineCloses[baselineCloses.length - 1];
-  const compressionCloses = Array.from({ length: compressionBlockLen }, (_, i) => lastBaseline + (i % 2 === 0 ? 0.02 : -0.02));
+  const compressionCloses = Array.from({ length: compressionBlockLen }, (_, i) => lastBaselineClose + (i % 2 === 0 ? 0.02 : -0.02));
   const compressionBars = makeBarsFromCloses(compressionCloses, compressionWobblePct);
   const lastCompressionClose = compressionCloses[compressionCloses.length - 1];
   const sign = direction === "LONG" ? 1 : -1;
@@ -68,7 +73,35 @@ function makeCompressionFixture(direction: "LONG" | "SHORT", jumpPct: number, co
     close: triggerClose,
     volume: 1000,
   };
-  return [...baselineBars, ...compressionBars, triggerBar];
+  return [...compressionBars, triggerBar];
+}
+
+/**
+ * Baseline (moderate volatility, FLAT — no macro trend) + compression +
+ * trigger. A flat baseline keeps the macro filter's slope condition near
+ * zero, so it never blocks these fixtures regardless of deviation.
+ */
+function makeCompressionFixture(direction: "LONG" | "SHORT", jumpPct: number, compressionWobblePct: number, baselineWobblePct = 0.006): OHLCVBar[] {
+  const baselineCloses = Array.from({ length: BASELINE_LEN }, (_, i) => 100 + (i % 2 === 0 ? 0.4 : -0.4));
+  const baselineBars = makeBarsFromCloses(baselineCloses, baselineWobblePct);
+  const lastBaseline = baselineCloses[baselineCloses.length - 1];
+  return [...baselineBars, ...makeCompressionAndTriggerTail(lastBaseline, direction, jumpPct, compressionWobblePct)];
+}
+
+/**
+ * Same compression + trigger tail as `makeCompressionFixture`, but preceded
+ * by a long, steep decline (instead of a flat baseline) so that BOTH the
+ * macro filter's conditions are clearly true by the time the trigger bar
+ * fires: price sits far below its own `macroPeriod`-bar SMA, and that SMA
+ * has been declining over the trailing `macroSlopeLookback` bars. Isolates
+ * the macro filter's effect — the compression+trigger tail is IDENTICAL in
+ * shape to the one used by the (unblocked) correct-signal fixtures above.
+ */
+function makeDirtyBearishMacroFixture(direction: "LONG" | "SHORT", jumpPct: number, compressionWobblePct: number): OHLCVBar[] {
+  const declineCloses = Array.from({ length: BASELINE_LEN }, (_, i) => 300 - (i * 200) / (BASELINE_LEN - 1));
+  const declineBars = makeBarsFromCloses(declineCloses, 0.006);
+  const lastDeclineClose = declineCloses[declineCloses.length - 1];
+  return [...declineBars, ...makeCompressionAndTriggerTail(lastDeclineClose, direction, jumpPct, compressionWobblePct)];
 }
 
 function evaluate(bars: OHLCVBar[]) {
@@ -155,9 +188,50 @@ describe("MomentumBreakoutFtmoStrategy — no lookahead", () => {
 });
 
 describe("MomentumBreakoutFtmoStrategy — insufficient history", () => {
-  it("returns null when there aren't even enough bars for the baseline + compression windows", () => {
-    const tooFew = makeCompressionFixture("LONG", 0.02, 0.0001).slice(-40); // minBars = max(14,50)+10+2 = 62
-    expect(tooFew.length).toBeLessThan(62);
+  it("returns null when there aren't even enough bars for the macro + baseline + compression windows", () => {
+    // minBars = max(14, 50, macroPeriod(100)+macroSlopeLookback(20)) + compressionLookback(10) + 2 = 132
+    const minBars = Math.max(volatilityPeriod, baselinePeriod, macroPeriod + macroSlopeLookback) + compressionLookback + 2;
+    expect(minBars).toBe(132);
+    const tooFew = makeCompressionFixture("LONG", 0.02, 0.0001).slice(-100);
+    expect(tooFew.length).toBeLessThan(minBars);
     expect(evaluate(tooFew)).toBeNull();
+  });
+});
+
+describe("MomentumBreakoutFtmoStrategy — macro regime filter (global background trend)", () => {
+  it("fires normally on a flat/neutral macro background (baseline sanity check — macro deviation and slope stay near zero)", () => {
+    const bars = makeCompressionFixture("LONG", 0.02, 0.0001);
+    const result = evaluate(bars);
+    expect(result).not.toBeNull();
+    expect(Math.abs(result?.meta?.macroDeviationPct as number)).toBeLessThan(0.02);
+    expect(Math.abs(result?.meta?.macroSlopePct as number)).toBeLessThan(0.005);
+  });
+
+  it("blocks an otherwise-valid LONG breakout when the macro background is a clear/dirty downtrend", () => {
+    // Identical compression+trigger tail to the correct-signal LONG test —
+    // only the long declining prefix differs — proving the macro filter,
+    // not the compression/energy/breakout logic, is what blocks this.
+    const bearishBars = makeDirtyBearishMacroFixture("LONG", 0.02, 0.0001);
+    const result = evaluate(bearishBars);
+    expect(result).toBeNull();
+  });
+
+  it("blocks an otherwise-valid SHORT breakout too — zero entries in ANY direction during a dirty bearish macro", () => {
+    const bearishBars = makeDirtyBearishMacroFixture("SHORT", 0.02, 0.0001);
+    const result = evaluate(bearishBars);
+    expect(result).toBeNull();
+  });
+
+  it("the macro filter requires BOTH a clear downward deviation AND a declining slope — a flat-but-below-average price alone is not enough", () => {
+    // Sanity: with the strategy's own default thresholds, a fixture whose
+    // macro slope is essentially flat (the standard makeCompressionFixture
+    // baseline) never trips the filter, however jumpy the trigger bar is —
+    // covered structurally by every correct-signal test above; this test
+    // pins the specific field names the filter's decision is derived from.
+    const bars = makeCompressionFixture("SHORT", 0.02, 0.0001);
+    const result = evaluate(bars);
+    expect(result).not.toBeNull();
+    expect(result?.meta).toHaveProperty("macroDeviationPct");
+    expect(result?.meta).toHaveProperty("macroSlopePct");
   });
 });

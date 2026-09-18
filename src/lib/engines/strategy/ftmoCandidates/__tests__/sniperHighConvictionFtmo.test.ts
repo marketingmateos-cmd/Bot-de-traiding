@@ -56,7 +56,12 @@ function makeBarsFromCloses(closes: number[], wobblePct: number, volume = 1000):
  */
 function makeSniperFixture(direction: "LONG" | "SHORT", jumpPct: number, compressionWobblePct: number, triggerVolume: number, baselineWobblePct = 0.006): OHLCVBar[] {
   const compressionBlockLen = volatilityPeriod + compressionLookback;
-  const baselineCloses = Array.from({ length: 60 }, (_, i) => 100 + (i % 2 === 0 ? 0.4 : -0.4));
+  // 150 flat bars — comfortably covers Candidata D's own minBars (132, driven
+  // by its macro filter's macroPeriod(100)+macroSlopeLookback(20) window) so
+  // the cross-strategy comparison test below (which evaluates this SAME
+  // fixture against `momentumBreakoutFtmoStrategy` directly) isn't starved of
+  // history, while staying flat enough that D's macro filter never blocks it.
+  const baselineCloses = Array.from({ length: 150 }, (_, i) => 100 + (i % 2 === 0 ? 0.4 : -0.4));
   const baselineBars = makeBarsFromCloses(baselineCloses, baselineWobblePct);
   const lastBaseline = baselineCloses[baselineCloses.length - 1];
   const compressionCloses = Array.from({ length: compressionBlockLen }, (_, i) => lastBaseline + (i % 2 === 0 ? 0.02 : -0.02));

@@ -1,4 +1,4 @@
-import { atr } from "../../features";
+import { atr, sma } from "../../features";
 import type { StrategyDefinition } from "../types";
 import { FTMO_COST_MODEL } from "./shared";
 
@@ -20,6 +20,19 @@ import { FTMO_COST_MODEL } from "./shared";
  * cumplen las tres condiciones a la vez tienden a recorrer varias veces
  * su propio riesgo inicial — arriesgar poco, dejar correr lo suficiente
  * para cubrir varias pérdidas pequeñas con un solo acierto grande.
+ *
+ * Filtro de régimen macro global (añadido en el mismo v1 — edición directa,
+ * no una nueva variante): el gate táctico `recommendedRegimes` ya excluye
+ * BEAR/STRONG_BEAR, pero ese gate se mide sobre una ventana LOCAL (~60
+ * velas) — dentro de una tendencia estructural bajista más amplia siguen
+ * ocurriendo tramos locales de RANGE/TRANSITION/HIGH_VOLATILITY que ese gate
+ * sí deja pasar, y fue precisamente ahí donde el Max Drawdown superó el
+ * límite de FTMO. El filtro macro añade un segundo juicio, de horizonte
+ * mucho más largo (`macroPeriod` velas): si el precio cotiza claramente por
+ * debajo de esa media de largo plazo Y la media misma lleva
+ * `macroSlopeLookback` velas descendiendo, el fondo se considera una
+ * tendencia bajista clara/sucia y la estrategia no genera ninguna señal —
+ * en ninguna dirección — hasta que el fondo deje de serlo.
  */
 export const momentumBreakoutFtmoStrategy: StrategyDefinition = {
   id: "momentum-breakout-ftmo-v1",
@@ -34,6 +47,10 @@ export const momentumBreakoutFtmoStrategy: StrategyDefinition = {
     bodyAtrMultiplier: 1.5,
     atrMultiplier: 1,
     rrr: 3.5,
+    macroPeriod: 100,
+    macroSlopeLookback: 20,
+    macroDeviationThreshold: 0.02,
+    macroSlopeThreshold: 0.005,
   },
   timeframe: "H1",
   // Una compresión de volatilidad puede empezar en RANGE/LOW_VOLATILITY y
@@ -54,15 +71,38 @@ export const momentumBreakoutFtmoStrategy: StrategyDefinition = {
     const bodyAtrMultiplier = Number(params.bodyAtrMultiplier ?? 1.5);
     const atrMultiplier = Number(params.atrMultiplier ?? 1);
     const rrr = Number(params.rrr ?? 3.5);
+    const macroPeriod = Number(params.macroPeriod ?? 100);
+    const macroSlopeLookback = Number(params.macroSlopeLookback ?? 20);
+    const macroDeviationThreshold = Number(params.macroDeviationThreshold ?? 0.02);
+    const macroSlopeThreshold = Number(params.macroSlopeThreshold ?? 0.005);
 
-    const minBars = Math.max(volatilityPeriod, baselinePeriod) + compressionLookback + 2;
+    const minBars = Math.max(volatilityPeriod, baselinePeriod, macroPeriod + macroSlopeLookback) + compressionLookback + 2;
     if (bars.length < minBars) return null;
+
+    const current = bars[bars.length - 1];
+
+    // 0) Filtro de régimen macro global: media de largo plazo `macroPeriod`
+    // (incluye la vela actual — es un indicador en vivo de dónde cotiza el
+    // precio AHORA respecto al fondo estructural, no una ventana "prior");
+    // la pendiente se juzga comparando ese valor con el mismo indicador
+    // `macroSlopeLookback` velas atrás (estrictamente pasado). Si el precio
+    // está claramente por debajo de la media Y la media misma desciende, el
+    // fondo es bajista claro/sucio: cero entradas, en cualquier dirección.
+    const closes = bars.map((b) => b.close);
+    const smaLongArr = sma(closes, macroPeriod);
+    const smaLongNow = smaLongArr[smaLongArr.length - 1];
+    const smaLongPast = smaLongArr[smaLongArr.length - 1 - macroSlopeLookback];
+    if (smaLongNow === null || smaLongPast === null || smaLongNow <= 0 || smaLongPast <= 0) return null;
+
+    const macroDeviationPct = (current.close - smaLongNow) / smaLongNow;
+    const macroSlopePct = (smaLongNow - smaLongPast) / smaLongPast;
+    const dirtyBearishMacro = macroDeviationPct <= -macroDeviationThreshold && macroSlopePct <= -macroSlopeThreshold;
+    if (dirtyBearishMacro) return null; // fondo macro bajista claro/sucio — estrategia desactivada por completo
 
     const atrArr = atr(bars, volatilityPeriod);
     const atrValue = atrArr[atrArr.length - 1];
     if (atrValue === null || atrValue <= 0) return null;
 
-    const current = bars[bars.length - 1];
     const body = Math.abs(current.close - current.open);
 
     // 1) Gatillo de alta energía: el cuerpo de la vela actual debe superar
@@ -107,7 +147,7 @@ export const momentumBreakoutFtmoStrategy: StrategyDefinition = {
         reason: `Ruptura de alta energía: cuerpo ${body.toFixed(2)} >= ${bodyAtrMultiplier}×ATR(${volatilityPeriod}) tras compresión (ATR reciente/base=${compressionRatio.toFixed(2)} <= ${compressionThreshold}), close ${current.close.toFixed(2)} > máximo comprimido ${rangeHigh.toFixed(2)}; objetivo asimétrico RRR=${rrr}.`,
         stopLossPrice: current.close - stopDistance,
         takeProfitPrice: current.close + stopDistance * rrr,
-        meta: { rangeLevel: rangeHigh, compressionRatio, body, stopDistance, rrr },
+        meta: { rangeLevel: rangeHigh, compressionRatio, body, stopDistance, rrr, macroDeviationPct, macroSlopePct },
       };
     }
     if (current.close < rangeLow && current.close < current.open) {
@@ -118,7 +158,7 @@ export const momentumBreakoutFtmoStrategy: StrategyDefinition = {
         reason: `Ruptura de alta energía: cuerpo ${body.toFixed(2)} >= ${bodyAtrMultiplier}×ATR(${volatilityPeriod}) tras compresión (ATR reciente/base=${compressionRatio.toFixed(2)} <= ${compressionThreshold}), close ${current.close.toFixed(2)} < mínimo comprimido ${rangeLow.toFixed(2)}; objetivo asimétrico RRR=${rrr}.`,
         stopLossPrice: current.close + stopDistance,
         takeProfitPrice: current.close - stopDistance * rrr,
-        meta: { rangeLevel: rangeLow, compressionRatio, body, stopDistance, rrr },
+        meta: { rangeLevel: rangeLow, compressionRatio, body, stopDistance, rrr, macroDeviationPct, macroSlopePct },
       };
     }
     // Compresión + energía sin ruptura real del rango (o dirección del
